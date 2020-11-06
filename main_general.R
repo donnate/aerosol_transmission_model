@@ -1,16 +1,18 @@
 #### Main file where we compute the ouputs of interest
 
 
-compute_quanta_emission_rate <- function(){
+compute_quanta_emission_rate <- function(cv, ci, inhalation, activity){
   ### This fucnction computes the quanta emission rate (per hour) given room parameters
-  ### TO DO
+  D <- c(0.8 * 10^(-6), 1.8 * 10^(-6), 3.5 * 10^(-6), 5.5 * 10^(-6))
+  Vd <- 4/3 * pi * (D / 2)^3 
+  return(cv * ci * inhalation * )
   
 }
 
-compute_quanta_inhaled_per_person <- function(){
+compute_quanta_inhaled_per_person <- function(emission, removal, inhalation, volume){
   ### This fucnction computes the number of quanta inhaled by each participant 
   ### over the course of the event
-  ### TO DO
+  return()
 }
 
 compute_distribution_infections <- function(){
