@@ -45,8 +45,8 @@ compute_quanta_inhaled_per_person <- function(emission, removal, infectious_peop
 compute_distribution_infections <- function(inhaled, susceptible_people){
   #### This function coomputes the distribution (not just the average) of people that 
   #### will be infected over the course of the event
-  ### 'inhaled' is a vector of all susceptible people's inhaled quanta
-  p <- 1 - exp(- inhaled)
+
+  p <- 1 - exp(- inhaled)        ### 'inhaled' is a vector of all susceptible people's inhaled quanta
   r <- runif(1000 * susceptible_people)           ### random number pool should be larger than number of people
   N <- 500
   c <- numeric(length(N))
@@ -59,7 +59,7 @@ compute_distribution_infections <- function(inhaled, susceptible_people){
     }
   }
   P <- as.data.frame(table(c))
-  P[,2] <- P[,2] / susceptible_people
+  P[,2] <- P[,2] / N
   return(P)
 }
 
@@ -82,7 +82,7 @@ compute_distribution_hospitalizations <- function(conditions, age, susceptible_p
     }
   }
   H <- as.data.frame(table(c))
-  H[,2] <- H[,2] / susceptible_people
+  H[,2] <- H[,2] / N
 }
 
 compute_distribution_deaths<- function(){
