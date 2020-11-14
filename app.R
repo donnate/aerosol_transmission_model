@@ -1,8 +1,16 @@
 # Define UI for app that draws a histogram ----
 library("shiny")
 library("tidyverse")
+setwd("~/Dropbox/aerosol_transmission_model/")
+source("individual_probabilities.R")
+source("helper_functions.R")
+source("aerosol_functions.R")
 
-countries = read.csv("population_by_country_2020.csv")
+
+SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
+RELATIVE_INFECTIOUSNESS = c(0,0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
+TAU = 0.1
+
 ui <- fluidPage(
   
   # App title ----
@@ -124,37 +132,28 @@ ui <- fluidPage(
     # Main panel for displaying outputs ----
     mainPanel(
       
-      # Output: Histogram ----
-      tabsetPanel(
-        )
+      # Output: Data file ----
+      tableOutput("contents")
       
     )
-
+    
   )
 )
 
 
 # Define server logic required to draw a histogram ----
 server <- function(input, output, session) {
-  
-  # Histogram of the Old Faithful Geyser Data ----
-  # with requested number of bins
-  # This expression that generates a histogram is wrapped in a call
-  # to renderPlot to indicate that:
-  #
-  # 1. It is "reactive" and therefore should be automatically
-  #    re-executed when inputs (input$bins) change
-  # 2. Its output type is a plot
-  # ------------------ App virtualenv setup (Do not edit) ------------------- #
-  
-  
-  #output$probs <- renderDataTable({
-  #output$region = renderUI({
-  #  country_regions = dplyr::filter(regions, country == input$country)
-  #  selectInput('region2', 'What region do you live in?', country_regions$region)
-  #})
-  
+
   dataInput <- reactive({
+    
+    
+    #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
+    ####### Step 1.a: Load participants
+    df <- read.csv(input$file1$datapath,
+                   header = TRUE,
+                   sep = ",")
+    
+    ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height)
     first_order_loss_rate = extract_first_order(input$ventilation,
                                                 input$control,
@@ -164,39 +163,81 @@ server <- function(input, output, session) {
                                                                       input$ventilation,
                                                                       input$control,
                                                                       input$n)
-    nb_infective_people <-  compute_number_infective_people()
-    quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
-                                                         input$mask_efficiency ,
-                                                         input$prop_mask,
-                                                         nb_infective_people)
-    quanta_concentation <- compute_quanta_concentation(quanta_emission_rate,
-                                                       first_order_loss_rate,
-                                                       volume,  
-                                                       input$duration)
-    quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
-                                                                   breathing_rate,
-                                                                   input$duration,
-                                                                   input$inhalation_mask_efficiency,
-                                                                   input$prop_mask)
     
-    p = 1-exp(-quanta_inhaled_per_person)
-    return(list(p_infection= p, p_hosp = input$hosp_rate *p, p_death = p * input$death_rate))
+    ##########################################
+    #### Step 2: compute probability of being infectious, hospitalized,and dying
+    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
+    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
+    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
+    pi = apply(df, 1, compute_infectiousness_probability)
+    
+    ##########################################
+    nb_infective_people = rep(0,B)
+    nb_infections = rep(0,B)
+    p = rep(0,B)
+    nb_hospitalizations = rep(0,B)
+    nb_deaths = rep(0,B)
+    #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
+    for (b in 1:B){
+      ####### draw infected people (their infectivity bucket)
+      Z = apply(pi,axis= 1, function(x){dirichlet(1,x)})
+      Z = Z[(Z>1)]  #### keep infected people only
+      nb_infective_people[b] = length(Z)
+      ####### Step 3.a Direct contacts
+      contacts  = rnorm(length(Z), mu = input$mu, sd = input$sd)
+      nb_infections[b] = sapply(1:length(Z),
+                            function(x){rbinom(contacts[x], TAU *  RELATIVE_INFECTIOUSNESS[x])})
+      
+      ####### Step 3.b Aerosolization
+      quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
+                                                           input$mask_efficiency ,
+                                                           input$prop_mask,
+                                                           nb_infective_people[b])
+      quanta_concentation <- compute_quanta_concentation(quanta_emission_rate,
+                                                         first_order_loss_rate,
+                                                         volume,  
+                                                         input$duration)
+      quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
+                                                                     breathing_rate,
+                                                                     input$duration,
+                                                                     input$inhalation_mask_efficiency,
+                                                                     input$prop_mask)
+      
+      p[b] = 1-exp(-quanta_inhaled_per_person)
+      nb_infections[b] =  nb_infections[b] + rbinom(N - nb_infections[b] - nb_infective_people[b],
+                                                    p[b])
+      
+    }
+    
+    #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
+    for (b in 1:B){
+      ###### Sample from the list
+      nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,x)}))
+      nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,x)}))
+    }
+    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_infections=nb_infections))
+  })
+  
+  output$contents <- renderTable({
+    
+    # input$file1 will be NULL initially. After the user selects
+    # and uploads a file, head of that data file by default,
+    # or all rows if selected, will be shown.
+    
+    req(input$file1)
+    
+    df <- read.csv(input$file1$datapath,
+                   header = TRUE,
+                   sep = ",")
+    return(head(df))
+    
     
   })
   
-  output$distPlot <- renderPlot({
-    x =  dataInput()
-    
-    hist(x, breaks = seq(from=0, to=1, by=0.025), col = "#75AADB", border = "white",
-         xlab = "Probability",
-         main ="Your probability distribution" )
-  })
-
   
   
-
-
- 
+  
+  
 }
 
 
