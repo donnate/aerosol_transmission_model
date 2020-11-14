@@ -19,6 +19,26 @@ ui <- fluidPage(
                   label = "Which country do you live in?",
                   choices = countries$Country,
                   selected = "United Kingdom"),
+      dateInput(inputId = "date_event",
+                label ="When will the event occur?", 
+                value ="2020-09-01",
+                min = NULL,
+                max = NULL,
+                format = "yyyy-mm-dd",
+                startview = "month",
+                weekstart = 0,
+                language = "en",
+                width = NULL,
+                autoclose = TRUE,
+                datesdisabled = NULL,
+                daysofweekdisabled = NULL),
+      
+      numericInput(inputId = "Duration",
+                   label = "Duration of the event (in minutes) ",
+                   value = 90,
+                   min=0),
+      # Horizontal line ----
+      tags$hr(),
       radioButtons(inputId = "unit",
                    label="What measurement unit will you be using",
                    choices = c("ft" = 1,
@@ -45,10 +65,8 @@ ui <- fluidPage(
                    label = "Temperature (in Celsius)",
                    value = 20,
                    min=0),
-      numericInput(inputId = "Duration",
-                   label = "Duration of the event (in minutes) ",
-                   value = 90,
-                   min=0),
+      # Horizontal line ----
+      tags$hr(),
       numericInput(inputId = "Ventilation_out",
                    label = "Ventilation with outside air",
                    value = 0.7,
@@ -85,11 +103,22 @@ ui <- fluidPage(
                    selected = 0,
                    inline = TRUE),
       radioButtons(inputId = "mask",
-                   label="Will the participants be required to wer any mask",
+                   label="Will the participants be required to wear any mask",
                    choices = c("no" = 0,
                                "yes" = 1),
                    selected = 0,
                    inline = TRUE),
+      
+      # Input: Select a file ----
+      fileInput("file1", "Upload participants' information (choose CSV File)",
+                multiple = TRUE,
+                accept = c("text/csv",
+                           "text/comma-separated-values,text/plain",
+                           ".csv")),
+      
+      # Horizontal line ----
+      tags$hr(),
+      
     ),
     
     # Main panel for displaying outputs ----
@@ -118,11 +147,6 @@ server <- function(input, output, session) {
   # 2. Its output type is a plot
   # ------------------ App virtualenv setup (Do not edit) ------------------- #
   
-  observe({
-    x <- input$country
-    
-  })
-  
   
   #output$probs <- renderDataTable({
   #output$region = renderUI({
@@ -130,12 +154,44 @@ server <- function(input, output, session) {
   #  selectInput('region2', 'What region do you live in?', country_regions$region)
   #})
   
-  
   dataInput <- reactive({
-    testMethod()
+    volume = extract_volume(input$length, input$width, input$height)
+    first_order_loss_rate = extract_first_order(input$ventilation,
+                                                input$control,
+                                                input$decay,
+                                                input$deposition)
+    ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
+                                                                      input$ventilation,
+                                                                      input$control,
+                                                                      input$n)
+    nb_infective_people <-  compute_number_infective_people()
+    quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
+                                                         input$mask_efficiency ,
+                                                         input$prop_mask,
+                                                         nb_infective_people)
+    quanta_concentation <- compute_quanta_concentation(quanta_emission_rate,
+                                                       first_order_loss_rate,
+                                                       volume,  
+                                                       input$duration)
+    quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
+                                                                   breathing_rate,
+                                                                   input$duration,
+                                                                   input$inhalation_mask_efficiency,
+                                                                   input$prop_mask)
+    
+    p = 1-exp(-quanta_inhaled_per_person)
+    return(list(p_infection= p, p_hosp = input$hosp_rate *p, p_death = p * input$death_rate))
     
   })
   
+  output$distPlot <- renderPlot({
+    x =  dataInput()
+    
+    hist(x, breaks = seq(from=0, to=1, by=0.025), col = "#75AADB", border = "white",
+         xlab = "Probability",
+         main ="Your probability distribution" )
+  })
+
   
   
 
