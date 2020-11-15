@@ -5,8 +5,9 @@ setwd("~/Dropbox/aerosol_transmission_model/")
 source("individual_probabilities.R")
 source("helper_functions.R")
 source("aerosol_functions.R")
+source("preprocessing_functions.R")
 
-
+countries = read.csv("population_by_country_2020.csv")
 SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
 RELATIVE_INFECTIOUSNESS = c(0,0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
 TAU = 0.1
@@ -91,23 +92,17 @@ ui <- fluidPage(
                    label = "Additional control measures",
                    value = 0,
                    min=0),
-      numericInput(inputId = "N",
+      numericInput(inputId = "n",
                    label = "Total of people present",
                    value = 0,
                    min=0),
-      numericInput(inputId = "N_inf",
-                   label = "Nb of infected individuals",
-                   value = 0,
-                   min=0),
-      numericInput(inputId = "p_susc",
-                   label =  "Percentage of susceptible people",
-                   value = 100.0,
-                   min=0, max=100),
       radioButtons(inputId = "activity",
                    label="What activity will the participants be performing?",
                    choices = c("singing" = 0,
                                "eating" = 1,
-                               "walking" = 2),
+                               "walking" = 2,
+                               "light_exercise" = 3,
+                               "strenuous_exercise" = 4),
                    selected = 0,
                    inline = TRUE),
       radioButtons(inputId = "mask",
@@ -116,13 +111,23 @@ ui <- fluidPage(
                                "yes" = 1),
                    selected = 0,
                    inline = TRUE),
-      
+      radioButtons(inputId = "mixing",
+                   label="Are the people going to be mixing in that event?",
+                   choices = c("no" = 0,
+                               "yes" = 1),
+                   selected = 0,
+                   inline = TRUE),
+  
       # Input: Select a file ----
       fileInput("file1", "Upload participants' information (choose CSV File)",
                 multiple = TRUE,
                 accept = c("text/csv",
                            "text/comma-separated-values,text/plain",
                            ".csv")),
+      
+      # Horizontal line ----
+      tags$hr(),
+      
       
       # Horizontal line ----
       tags$hr(),
@@ -149,9 +154,33 @@ server <- function(input, output, session) {
     
     #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
     ####### Step 1.a: Load participants
+    input = list(country = "France",
+                 date_event= "2020-09-01",
+                 duration = 90,
+                 unit = "m",
+                 length=100,
+                 width = 100,
+                 height = 5,
+                 pressure= 0.95,
+                 yemperature = 20,
+                 ventilation_out = 0.7,
+                 decay_rate = 0.62,
+                 deposition = 0.3,
+                 controls = 0,
+                 n=60,
+                 activity = 0,
+                 mask = 0,
+                 mixing = 0
+                 )
     df <- read.csv(input$file1$datapath,
                    header = TRUE,
                    sep = ",")
+    #df <- read.csv("~/Dropbox/mock_data.csv",
+    #                             header = TRUE,
+    #                               sep = ",")
+    ####### Enrich the dataset by computing the prevalence of the virus up
+    ####### to 14 days before the event
+    prevalence =  rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     
     ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height)
@@ -166,11 +195,32 @@ server <- function(input, output, session) {
     
     ##########################################
     #### Step 2: compute probability of being infectious, hospitalized,and dying
-    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
-    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
-    df %>% rowwise() %>% mutate(m = mean(c(x, y, z)))
-    pi = apply(df, 1, compute_infectiousness_probability)
     
+   df$p =  unlist(sapply(1:5, function(x){
+      compute_infectiousness_probability(sensitivity = SENSITIVITY,
+                                         prevalence=prevalence,
+                                         df$profession[x],
+                                         df$high_risk_contact[x],
+                                         df$mask_wearing[x],
+                                         df$nb_people_hh[x])
+      }))
+    
+    df$p_hosp =  unlist(sapply(1:5, function(x){
+      compute_hospitalization_probability(c(df$age[x], df$Pregnant[x],
+                                            df$Chronic_Renal_Insufficiency[x],
+                                            df$Diabetes[x], df$Immunosuppression[x],
+                                            df$COPD[x], df$Obesity[x], 
+                                            df$Hypertension[x],
+                                            df$Tobacco[x], df$Cardiovascular_Disease[x],
+                                            df$Asthma[x], df$Sex[x]))
+    }))
+    
+    df = df %>% rowwise() %>% mutate(p_death = death_probability(age, Pregnant,
+                                                                 Chronic_Renal_Insufficiency,
+                                                                 Diabetes, Immunosuppression, COPD,
+                                                                 Obesity, Hypertension, Tobacco,
+                                                                 Cardiovascular_Disease,Asthma, Gender))
+
     ##########################################
     nb_infective_people = rep(0,B)
     nb_infections = rep(0,B)
@@ -183,6 +233,7 @@ server <- function(input, output, session) {
       Z = apply(pi,axis= 1, function(x){dirichlet(1,x)})
       Z = Z[(Z>1)]  #### keep infected people only
       nb_infective_people[b] = length(Z)
+      
       ####### Step 3.a Direct contacts
       contacts  = rnorm(length(Z), mu = input$mu, sd = input$sd)
       nb_infections[b] = sapply(1:length(Z),
