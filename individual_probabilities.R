@@ -22,6 +22,7 @@ compute_infectiousness_probability <- function(sensitivity, prevalence, professi
   l = log(prev/(1-prev))
   l = l + BETA_PROFESSION[profession + 1] + BETA_CONTACT * high_risk_contact
   p = 1/(1 + exp(-l))
+  #print(p)
   return( p * (1 - sensitivity))
 }
 
@@ -42,7 +43,6 @@ compute_hospitalization_probability <- function(age, Pregnant, Chronic_Renal_Ins
   a = a + Cardiovascular_Disease *	- 0.005
   a = a + Asthma * 	- 0.065
   a = a + Gender * -0.121
-  print(a)
   return(1/(1+exp(-a)))
 }
 
