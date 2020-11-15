@@ -2,7 +2,7 @@
 
 BETA_PROFESSION <- c(0,0,0)
 BETA_CONTACT <- 0
-
+EFFICIENCY_MASK <- 0.7
 compute_infectiousness_probability <- function(sensitivity, prevalence, profession=1,
                                                high_risk_contact = 1,
                                                mask_wearing = 0,
@@ -18,12 +18,12 @@ compute_infectiousness_probability <- function(sensitivity, prevalence, professi
   ##### high_risk_contact : has the participant had any high risk contact?
   ##### mask_wearing      : how likely has the participant been to wear a mask
   ##### nb_people_hh      : nb of people living in the same household as the participant 
-  prev = sum(prevalence * (1 - sensitivity))
+  prev = prevalence 
   #### We model the log odds ratio
-  l = log(prev/(1-prev) * (1-mask_wearing))
+  l = log(prev/(1-prev) * (1-mask_wearing * EFFICIENCY_MASK))
   l = l + BETA_PROFESSION[profession + 1] + BETA_CONTACT * high_risk_contact
   p = 1/(1 + exp(-l))
-  return( p )
+  return( p * (1 - sensitivity))
 }
 
 
@@ -31,6 +31,26 @@ compute_hospitalization_probability <- function(age, Pregnant, Chronic_Renal_Ins
                                                         Diabetes, Immunosuppression, COPD, Obesity,
                                                         Hypertension, Tobacco, Cardiovascular_Disease,
                                                         Asthma, Gender){
+  a = age * 1.000 
+  a = a + Pregnant * 0.172
+  a = a +  Chronic_Renal_Insufficiency * 	0.167
+  a = a + Diabetes * 0.165
+  a = a +  Immunosuppression *	0.139
+  a = a +  COPD	* 0.094
+  a = a + Obesity * 0.083
+  a = a +  Hypertension	 * 0.039
+  a = a + Tobacco * 0.007
+  a = a + Cardiovascular_Disease *	- 0.005
+  a = a + Asthma * 	- 0.065
+  a = a + Gender * -0.121
+  print(a)
+  return(1/(1+exp(-a)))
+}
+
+compute_death_probability <- function(age, Pregnant, Chronic_Renal_Insufficiency,
+                              Diabetes, Immunosuppression, COPD, Obesity,
+                              Hypertension, Tobacco, Cardiovascular_Disease,
+                              Asthma, Gender){
   a = age * 1.000 
   a = a + Immunosuppression * 0.175
   a = a + Asthma * 0.114
@@ -41,7 +61,9 @@ compute_hospitalization_probability <- function(age, Pregnant, Chronic_Renal_Ins
   a = a + Diabetes * 0.077
   a = a + COPD * 	0.042
   a = a + Cardiovascular_Disease * 	0.027
-  a = a + Tobacco_Use * -0.055
+  a = a + Tobacco * -0.055
   a = a + Gender * -0.116
   return(1/(1+exp(-a)))
 }
+
+

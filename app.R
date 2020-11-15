@@ -1,6 +1,7 @@
 # Define UI for app that draws a histogram ----
 library("shiny")
 library("tidyverse")
+library(MCMCpack)
 setwd("~/Dropbox/aerosol_transmission_model/")
 source("individual_probabilities.R")
 source("helper_functions.R")
@@ -8,7 +9,7 @@ source("aerosol_functions.R")
 source("preprocessing_functions.R")
 
 countries = read.csv("population_by_country_2020.csv")
-SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
+SENSITIVITY = c(0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
 RELATIVE_INFECTIOUSNESS = c(0,0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
 TAU = 0.1
 
@@ -162,22 +163,28 @@ server <- function(input, output, session) {
                  width = 100,
                  height = 5,
                  pressure= 0.95,
-                 yemperature = 20,
+                 quanta_exhalation_rate = 0.4,
+                 temperature = 20,
                  ventilation_out = 0.7,
                  decay_rate = 0.62,
                  deposition = 0.3,
                  controls = 0,
                  n=60,
                  activity = 0,
-                 mask = 0,
-                 mixing = 0
+                 prop_mask = 0,
+                 breathing_rate=0.4,
+                 mask_efficiency = 0.7,
+                 inhalation_mask_efficiency  = 0.7,
+                 mixing = 0,
+                 mu = 15,
+                 sd = 3
                  )
-    df <- read.csv(input$file1$datapath,
-                   header = TRUE,
-                   sep = ",")
-    #df <- read.csv("~/Dropbox/mock_data.csv",
-    #                             header = TRUE,
-    #                               sep = ",")
+    #df <- read.csv(input$file1$datapath,
+    #               header = TRUE,
+    #               sep = ",")
+    df <- read.csv("mock_data.csv",
+                                 header = TRUE,
+                                   sep = ",")  ### for debugging
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
     prevalence =  rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
@@ -195,38 +202,41 @@ server <- function(input, output, session) {
     
     ##########################################
     #### Step 2: compute probability of being infectious, hospitalized,and dying
-    
-   df$p =  unlist(sapply(1:5, function(x){
+    group_assignment = sapply(0:(length(SENSITIVITY)), function(x){paste0("p",x)})
+    df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})] =  t(sapply(1:nrow(df), function(x){
       compute_infectiousness_probability(sensitivity = SENSITIVITY,
                                          prevalence=prevalence,
                                          df$profession[x],
                                          df$high_risk_contact[x],
                                          df$mask_wearing[x],
-                                         df$nb_people_hh[x])
+                                         df$nb_people_hh[x]
+                                         )
       }))
-    
-    df$p_hosp =  unlist(sapply(1:5, function(x){
-      compute_hospitalization_probability(c(df$age[x], df$Pregnant[x],
+    df$p0 = 1 - apply(df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})],1,sum)
+
+    df$p_hosp =  unlist(sapply(1:nrow(df), function(x){
+      compute_hospitalization_probability(df$Age[x], df$Pregnant[x],
                                             df$Chronic_Renal_Insufficiency[x],
                                             df$Diabetes[x], df$Immunosuppression[x],
                                             df$COPD[x], df$Obesity[x], 
                                             df$Hypertension[x],
                                             df$Tobacco[x], df$Cardiovascular_Disease[x],
-                                            df$Asthma[x], df$Sex[x]))
+                                            df$Asthma[x], df$Sex[x])
     }))
     
-    df$p_hosp =  unlist(sapply(1:5, function(x){
-      compute_death_probability(c(df$age[x], df$Pregnant[x],
+    df$p_death =  unlist(sapply(1:nrow(df), function(x){
+      compute_death_probability(df$Age[x], df$Pregnant[x],
                                             df$Chronic_Renal_Insufficiency[x],
                                             df$Diabetes[x], df$Immunosuppression[x],
                                             df$COPD[x], df$Obesity[x], 
                                             df$Hypertension[x],
                                             df$Tobacco[x], df$Cardiovascular_Disease[x],
-                                            df$Asthma[x], df$Sex[x]))
+                                            df$Asthma[x], df$Sex[x])
     }))
     
 
     ##########################################
+    B = 1000
     nb_infective_people = rep(0,B)
     nb_infections = rep(0,B)
     p = rep(0,B)
@@ -235,41 +245,44 @@ server <- function(input, output, session) {
     #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
     for (b in 1:B){
       ####### draw infected people (their infectivity bucket)
-      Z = apply(pi,axis= 1, function(x){dirichlet(1,x)})
-      Z = Z[(Z>1)]  #### keep infected people only
+      Z = apply(df[group_assignment], MARGIN = 1, function(x){which(rmultinom(1,1,x)>0)-1})
+      Z = Z[(Z>0)]  #### keep infected people only
       nb_infective_people[b] = length(Z)
-      
-      ####### Step 3.a Direct contacts
-      contacts  = rnorm(length(Z), mu = input$mu, sd = input$sd)
-      nb_infections[b] = sapply(1:length(Z),
-                            function(x){rbinom(contacts[x], TAU *  RELATIVE_INFECTIOUSNESS[x])})
-      
-      ####### Step 3.b Aerosolization
-      quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
-                                                           input$mask_efficiency ,
-                                                           input$prop_mask,
+      if (nb_infective_people[b] > 0){
+        ####### Step 3.a Direct contacts
+        contacts  = rnorm(length(Z), mean = input$mu, sd = input$sd)
+        nb_infections[b] = sapply(1:length(Z),
+                                  function(x){rbinom(1,round(contacts[x]), TAU *  RELATIVE_INFECTIOUSNESS[Z[x]])})
+        
+        ####### Step 3.b Aerosolization
+        quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
+                                                             input$mask_efficiency ,
+                                                             input$prop_mask,
+                                                             nb_infective_people[b])
+        quanta_concentration <- compute_quanta_concentation(quanta_emission_rate,
+                                                           first_order_loss_rate,
+                                                           volume,  
+                                                           input$duration,
                                                            nb_infective_people[b])
-      quanta_concentation <- compute_quanta_concentation(quanta_emission_rate,
-                                                         first_order_loss_rate,
-                                                         volume,  
-                                                         input$duration)
-      quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
-                                                                     breathing_rate,
-                                                                     input$duration,
-                                                                     input$inhalation_mask_efficiency,
-                                                                     input$prop_mask)
-      
-      p[b] = 1-exp(-quanta_inhaled_per_person)
-      nb_infections[b] =  nb_infections[b] + rbinom(N - nb_infections[b] - nb_infective_people[b],
-                                                    p[b])
+        quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
+                                                                       input$breathing_rate,
+                                                                       input$duration,
+                                                                       input$inhalation_mask_efficiency,
+                                                                       input$prop_mask)
+        
+        p[b] = 1-exp(-quanta_inhaled_per_person)
+        nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
+                                                      p[b])
+      }
+
       
     }
     
     #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
     for (b in 1:B){
       ###### Sample from the list
-      nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,x)}))
-      nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,x)}))
+      nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
+      nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
     }
     return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_infections=nb_infections))
   })
@@ -278,6 +291,7 @@ server <- function(input, output, session) {
     
     # input$file1 will be NULL initially. After the user selects
     # and uploads a file, head of that data file by default,
+    
     # or all rows if selected, will be shown.
     
     req(input$file1)
