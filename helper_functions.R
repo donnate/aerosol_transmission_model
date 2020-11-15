@@ -1,6 +1,9 @@
 #### Set of Helper functions to compute all relevant parameters
 
-extract_volume <- function(length, width, height){
+extract_volume <- function(length, width, height, metric="m"){
+  if (metric== "ft"){
+    return(length * width * height * (0.3048)^3)
+  }
   return(length * width * height)
 }
 

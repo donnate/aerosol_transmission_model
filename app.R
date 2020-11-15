@@ -178,30 +178,6 @@ server <- function(input, output, session) {
     
     #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
     ####### Step 1.a: Load participants
-    # input = list(country = "France",
-    #              date_event= "2020-09-01",
-    #              duration = 90,
-    #              unit = "m",
-    #              length=100,
-    #              width = 100,
-    #              height = 5,
-    #              pressure= 0.95,
-    #              quanta_exhalation_rate = 0.4,
-    #              temperature = 20,
-    #              ventilation_out = 0.7,
-    #              decay_rate = 0.62,
-    #              deposition = 0.3,
-    #              controls = 0,
-    #              n=60,
-    #              activity = 0,
-    #              prop_mask = 0,
-    #              breathing_rate=0.4,
-    #              mask_efficiency = 0.7,
-    #              inhalation_mask_efficiency  = 0.7,
-    #              mixing = 0,
-    #              mu = 15,
-    #              sd = 3
-    #              )
     #df <- read.csv(input$file1$datapath,
     #               header = TRUE,
     #               sep = ",")
@@ -214,13 +190,12 @@ server <- function(input, output, session) {
                                     sep = ",")  ### for debugging
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    prevalence_df =  read_csv("chosen_prevalence_data.csv") 
     filtered_prevalence_df = prevalence_df%>% filter(Date_of_infection<=input$date_event & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
 
     ###### Step 1.b: compute room parameters for aerosolization
-    volume = extract_volume(input$length, input$width, input$height)
-    #print(paste0("volume: ",volume))
+    volume = extract_volume(input$length, input$width, input$height, input$unit)
     first_order_loss_rate = extract_first_order(input$ventilation,
                                                 input$control,
                                                 DECAY,
