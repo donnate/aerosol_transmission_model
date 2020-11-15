@@ -9,12 +9,14 @@ source("aerosol_functions.R")
 source("preprocessing_functions.R")
 
 countries = read.csv("population_by_country_2020.csv")
-SENSITIVITY = c(0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
-RELATIVE_INFECTIOUSNESS = c(0,0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
+BREATHING_RATE = 0.7
+SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
+RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
 MASK_EFFICIENCY = 0.5  ### 50% is the recommended value
 MASK_INHALATION_EFFICIENCY =0.3
-
-TAU = 0.1
+TAU = 0.2
+MU = 20
+SD = 4
 
 ui <- fluidPage(
   
@@ -34,7 +36,7 @@ ui <- fluidPage(
                   selected = "United Kingdom"),
       dateInput(inputId = "date_event",
                 label ="When will the event occur?", 
-                value ="2020-09-01",
+                value ="2020-11-15",
                 min = NULL,
                 max = "2020-11-29",
                 format = "yyyy-mm-dd",
@@ -60,15 +62,15 @@ ui <- fluidPage(
                    inline = TRUE),
       numericInput(inputId = "length",
                    label = "Length (in your selected metric). ",
-                   value = 1,
+                   value = 10,
                    min=0),
-      numericInput(inputId = "width (in your selected metric).",
-                   label = "Width ",
-                   value = 1,
+      numericInput(inputId = "width",
+                   label = "Width (in your selected metric).",
+                   value = 10,
                    min=0),
-      numericInput(inputId = "height (in your selected metric).",
-                   label = "Height ",
-                   value = 1,
+      numericInput(inputId = "height",
+                   label = "Height (in your selected metric).",
+                   value = 10,
                    min=0),
       numericInput(inputId = "pressure",
                    label = "Pressure (in atm) ",
@@ -90,7 +92,7 @@ ui <- fluidPage(
                    max=10),
       # Horizontal line ----
       tags$hr(),
-      numericInput(inputId = "ventilation_out",
+      numericInput(inputId = "ventilation",
                    label = "Ventilation with outside air",
                    value = 0.7,
                    min=0),
@@ -99,14 +101,14 @@ ui <- fluidPage(
                    label = "Deposition to surfaces",
                    value = 0.3,
                    min=0),
-      numericInput(inputId = "controls",
+      numericInput(inputId = "control",
                    label = "Additional control measures",
                    value = 0,
                    min=0),
       numericInput(inputId = "n",
                    label = "Total of people present",
-                   value = 0,
-                   min=0),
+                   value = 5,
+                   min=1),
       numericInput(inputId = "time2event",
                    label = "Number of days between Antigen Testing and Event",
                    value = 0,
@@ -123,6 +125,11 @@ ui <- fluidPage(
                                "yes" = 1),
                    selected = 0,
                    inline = TRUE),
+      numericInput(inputId = "prop_mask",
+                   label="What proportion (%) of the participants do you expect to wear any mask?",
+                   value=0,
+                   min=0,
+                   max=100),
       radioButtons(inputId = "mixing",
                    label="Are the people going to be mixing in that event?",
                    choices = c("no" = 0,
@@ -195,32 +202,35 @@ server <- function(input, output, session) {
     #              mu = 15,
     #              sd = 3
     #              )
-    df <- read.csv(input$file1$datapath,
-                   header = TRUE,
-                   sep = ",")
-    DECAY =(7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
+    #df <- read.csv(input$file1$datapath,
+    #               header = TRUE,
+    #               sep = ",")
+    DECAY = abs((7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
             0.02175703466389*(input$RH-45.235)/28.665+7.55272292970083*((input$UV*0.185)-50) / 50 +
-            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
-    # df <- read.csv("mock_data.csv",
-    #                              header = TRUE,
-    #                                sep = ",")  ### for debugging
+            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60 ) #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+    print(paste0("Decay:",  DECAY))
+    df <- read.csv("mock_data.csv",
+                                  header = TRUE,
+                                    sep = ",")  ### for debugging
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
     prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
-    filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=input$date_event & Date_of_infection>=input$date_event-14)
-    PREVALENCE = filtered_prevalence_df$infection_prevalence
-    
+    filtered_prevalence_df = prevalence_df%>% filter(Date_of_infection<=input$date_event & Date_of_infection>=as.Date(input$date_event)-14)
+    PREVALENCE = filtered_prevalence_df$Infection_prevalence
+
     ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height)
+    #print(paste0("volume: ",volume))
     first_order_loss_rate = extract_first_order(input$ventilation,
                                                 input$control,
                                                 DECAY,
                                                 input$deposition)
+    #print(paste0("first_order_loss_rate: ",first_order_loss_rate))
     ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
                                                                       input$ventilation,
                                                                       input$control,
                                                                       input$n)
-    
+    #print(paste0("ventilation_rate_per_person : ",ventilation_rate_per_person ))
     ##########################################
     #### Step 2: compute probability of being infectious, hospitalized,and dying
     group_assignment = sapply(0:(length(SENSITIVITY)), function(x){paste0("p",x)})
@@ -233,7 +243,7 @@ server <- function(input, output, session) {
                                          )
       }))
     df$p0 = 1 - apply(df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})],1,sum)
-  
+    #print(df[group_assignment])
     df$p_hosp =  unlist(sapply(1:nrow(df), function(x){
       compute_hospitalization_probability(df$Age[x], df$Pregnant[x],
                                             df$Chronic_Renal_Insufficiency[x],
@@ -271,29 +281,34 @@ server <- function(input, output, session) {
       nb_infective_people[b] = length(Z)
       if (nb_infective_people[b] > 0){
         ####### Step 3.a Direct contacts
-        contacts  = rnorm(length(Z), mean = input$mu, sd = input$sd)
+        contacts  = rnorm(length(Z), mean = MU, sd = SD)
         nb_infections[b] = sapply(1:length(Z),
-                                  function(x){rbinom(1,round(contacts[x]), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])})
+                                  function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])})
         
         ####### Step 3.b Aerosolization
         quanta_emission_rate <- compute_quanta_emission_rate(activity,
                                                              MASK_EFFICIENCY ,
                                                              input$prop_mask,
                                                              nb_infective_people[b])
+        #print(paste0("quanta_emission_rate: ",quanta_emission_rate))
+
         quanta_concentration <- compute_quanta_concentation(quanta_emission_rate,
                                                            first_order_loss_rate,
                                                            volume,  
                                                            input$duration,
                                                            nb_infective_people[b])
+        #print(paste0("quanta_concentration: ",quanta_concentration))
         quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
-                                                                       input$breathing_rate,
+                                                                       BREATHING_RATE,
                                                                        input$duration,
                                                                        MASK_INHALATION_EFFICIENCY,
-                                                                       input$prop_mask)
+                                                                       0.01 * input$prop_mask)
+        #print(paste0("quanta_inhaled_per_person: ",quanta_inhaled_per_person))
         
-        p[b] = 1-exp(-quanta_inhaled_per_person)
+        p[b] = 1.-exp(-quanta_inhaled_per_person[[1]])
         nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
                                                       p[b])
+        
       }
 
       
@@ -302,8 +317,11 @@ server <- function(input, output, session) {
     #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
     for (b in 1:B){
       ###### Sample from the list
-      nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
-      nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
+      print(nb_infections[b])
+      if (nb_infections[b] >0){
+           nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
+           nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
+      }
     }
     return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations))
   })

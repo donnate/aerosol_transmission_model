@@ -6,7 +6,7 @@ compute_quanta_emission_rate <- function(activity, mask_efficiency ,
   ### This function computes the quanta emission rate (per hour) given room parameters
   ### Step 1. read in the file with the different categories
   quanta_rates = read_csv("quanta_emission_rates.csv")
-  quanta_exhalation_rate = quanta_rates %>% filter(Activity == activity) %>% select(`Quanta/h`)
+  quanta_exhalation_rate = quanta_rates %>% filter(Activity == activity) %>% dplyr::select(`Quanta/h`)
   return(quanta_exhalation_rate * (1 - mask_efficiency * prop_mask) * nb_infective_people)
 }
 
