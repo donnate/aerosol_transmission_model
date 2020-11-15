@@ -215,11 +215,16 @@ server <- function(input, output, session) {
                                             df$Asthma[x], df$Sex[x]))
     }))
     
-    df = df %>% rowwise() %>% mutate(p_death = death_probability(age, Pregnant,
-                                                                 Chronic_Renal_Insufficiency,
-                                                                 Diabetes, Immunosuppression, COPD,
-                                                                 Obesity, Hypertension, Tobacco,
-                                                                 Cardiovascular_Disease,Asthma, Gender))
+    df$p_hosp =  unlist(sapply(1:5, function(x){
+      compute_death_probability(c(df$age[x], df$Pregnant[x],
+                                            df$Chronic_Renal_Insufficiency[x],
+                                            df$Diabetes[x], df$Immunosuppression[x],
+                                            df$COPD[x], df$Obesity[x], 
+                                            df$Hypertension[x],
+                                            df$Tobacco[x], df$Cardiovascular_Disease[x],
+                                            df$Asthma[x], df$Sex[x]))
+    }))
+    
 
     ##########################################
     nb_infective_people = rep(0,B)
