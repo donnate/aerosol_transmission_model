@@ -229,12 +229,11 @@ server <- function(input, output, session) {
                                          prevalence=PREVALENCE,
                                          df$profession[x],
                                          df$high_risk_contact[x],
-                                         df$mask_wearing[x],
                                          df$nb_people_hh[x]
                                          )
       }))
     df$p0 = 1 - apply(df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})],1,sum)
-
+  
     df$p_hosp =  unlist(sapply(1:nrow(df), function(x){
       compute_hospitalization_probability(df$Age[x], df$Pregnant[x],
                                             df$Chronic_Renal_Insufficiency[x],
@@ -254,6 +253,7 @@ server <- function(input, output, session) {
                                             df$Tobacco[x], df$Cardiovascular_Disease[x],
                                             df$Asthma[x], df$Sex[x])
     }))
+    
     
 
     ##########################################
