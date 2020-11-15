@@ -82,7 +82,7 @@ ui <- fluidPage(
                    min=0),
       numericInput(inputId = "RH",
                    label = "Relative Humidity (from 20 to 70%)",
-                   value = 20,
+                   value = 60,
                    min=20,
                    max=70),
       numericInput(inputId = "UV",
@@ -181,9 +181,9 @@ server <- function(input, output, session) {
     #df <- read.csv(input$file1$datapath,
     #               header = TRUE,
     #               sep = ",")
-    DECAY = abs((7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
+    DECAY = (7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
             0.02175703466389*(input$RH-45.235)/28.665+7.55272292970083*((input$UV*0.185)-50) / 50 +
-            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60 ) #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
     print(paste0("Decay:",  DECAY))
     df <- read.csv("mock_data.csv",
                                   header = TRUE,
@@ -292,7 +292,7 @@ server <- function(input, output, session) {
     #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
     for (b in 1:B){
       ###### Sample from the list
-      print(nb_infections[b])
+      #print(nb_infections[b])
       if (nb_infections[b] >0){
            nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
            nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
@@ -332,7 +332,8 @@ server <- function(input, output, session) {
     
     hist(x$nb_infections, col = "#75AADB", border = "white",
          xlab = "N",
-         main ="Nb of predicted infections" )
+         main ="Nb of predicted infections",
+         na.rm=TRUE)
   })
   
   output$distRes <- renderText({
