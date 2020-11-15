@@ -207,8 +207,11 @@ server <- function(input, output, session) {
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
     prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
-    filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=input$date_event & Date_of_infection>=input$date_event-14)
+    filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$infection_prevalence
+    filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
+    Baseline_infections_on_event_day<-rnorm(n=1000, mean=filtered_prevalence_df2$Infection_prevalence, sd=filtered_prevalence_df2$sd_Infection_prevalence)
+    
     
     ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height)
@@ -327,19 +330,41 @@ server <- function(input, output, session) {
   
   output$disclaimer = renderUI({
     tags$div(
-      tags$p("This questionnaire uses your personal information and your symptoms history to evaluate your probability of having had COVID. Your answers can be combined with your antibody test result to yield a personalized and better-informed probability of having antibodies."), 
-      tags$p("Our method has been designed in collaboration with medical experts. However, we are not medical experts ourselves. Do not rely on this tool for medical advice. Specifically, the likely presence of COVID antibodies does not necessarily mean that you are immune to COVID, as research on this topic is still ongoing."), 
-      tags$p("We do not save any of your personal information, nor answers to this questionnaire."),
-      tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see your results")
+      tags$p("This calculator uses the predicted number of infections in a country, the characteristics of the event, the participants and the screening protocol to estimate the number of infections, hospitalisations and deaths that are likely to result from holding the event"), 
+      tags$p("Our method has been designed in collaboration with medical experts. However, we are not medical experts ourselves. Do not rely on this tool for medical advice."), 
+      tags$p("We do not save any of the information you input or upload"),
+      tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see our predictions")
     )
   })
   
-  output$distPlot <- renderPlot({
-    x =  dataInput()
+
+  
+  pt1 <- reactive({
+    ggplot(prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
+    geom_point()+
+    geom_line()+
+    geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,ymin=Infection_prevalence+sd_Infection_prevalence))+
+    theme_classic()
+  })
+  
+  pt2 <- reactive({
+    ggplot(Baseline_infections_on_event_day)+
+      geom_histogram()+
+      theme_classic()
     
+  })
+  
+  pt3 <- reactive({
     hist(x$nb_infections, col = "#75AADB", border = "white",
          xlab = "N",
          main ="Nb of predicted infections" )
+  })
+  
+  output$plotgraph = renderPlot({
+    ptlist <- list(pt1(),pt2(),pt3())
+    if (length(ptlist)==0) return(NULL)
+    
+    grid.arrange(grobs=ptlist,nrow=length(ptlist))
   })
   
   output$distRes <- renderText({
