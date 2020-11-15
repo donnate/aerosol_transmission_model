@@ -7,6 +7,15 @@ library(doBy)
 library(tidyverse)
 library(slider)
 
+Selected_country="Estonia"
+Period_for_fitting=14
+Period_for_predicting=23
+Number_of_case_curves=20
+filename="chosen_prevalence_data.csv"
+Days_to_event<-0
+Time_to_symptom_onset<-5
+Time_from_symptom_to_test_result<-4
+
 
 #Load the Our World In Data dataset
 
@@ -19,10 +28,8 @@ country_data$date<-as.numeric(as.Date(country_data$date, "%Y-%m-%d"))
 
 #Defining the variables
 
-Selected_country="Estonia"
-Period_for_fitting=14
-Period_for_predicting=23
-Number_of_case_curves=20
+
+
 
 
 # Select the smoothed new cases per million in your country of interest
@@ -83,9 +90,6 @@ Summarised_case_predictions<-melted_case_curves %>%
 Summarised_case_predictions$Date_of_infection=as.Date(Summarised_case_predictions$time+max(country_data$date),origin = "1970-01-01")
 
 # Parametrise the delay between infections and cases being reported
-Days_to_event<-0
-Time_to_symptom_onset<-5
-Time_from_symptom_to_test_result<-4
 Infection_to_test_result_delay<-Time_to_symptom_onset+Time_from_symptom_to_test_result
 Days_from_infection_to_event_delay<-Infection_to_test_result_delay+Days_to_event
 
@@ -97,5 +101,5 @@ filtered_case_predictions<-filter(Summarised_case_predictions, Days_since_infect
 sorted_case_predictions<-filtered_case_predictions[order(filtered_case_predictions$Days_since_infection),]
   
 # save as csv file
-write.csv(x=sorted_case_predictions,file = "chosen_prevalence_data.csv")
+write.csv(x=sorted_case_predictions,file = filename)
 
