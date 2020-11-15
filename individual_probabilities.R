@@ -5,7 +5,6 @@ BETA_CONTACT <- 0
 EFFICIENCY_MASK <- 0.7
 compute_infectiousness_probability <- function(sensitivity, prevalence, profession=1,
                                                high_risk_contact = 1,
-                                               mask_wearing = 0,
                                                nb_people_hh=1){
   ##### This function computes the probability for an individual to be infectious,
   ##### based on his/her personal information
@@ -20,7 +19,7 @@ compute_infectiousness_probability <- function(sensitivity, prevalence, professi
   ##### nb_people_hh      : nb of people living in the same household as the participant 
   prev = prevalence 
   #### We model the log odds ratio
-  l = log(prev/(1-prev) * (1-mask_wearing * EFFICIENCY_MASK))
+  l = log(prev/(1-prev))
   l = l + BETA_PROFESSION[profession + 1] + BETA_CONTACT * high_risk_contact
   p = 1/(1 + exp(-l))
   return( p * (1 - sensitivity))
