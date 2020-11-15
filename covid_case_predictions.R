@@ -7,17 +7,27 @@ library(doBy)
 library(tidyverse)
 library(slider)
 
+<<<<<<< HEAD
 #Defining the variables
 
+=======
+>>>>>>> 5fb3f27b2677538f3e0e80ba565c0e5cb1fbe24e
 Selected_country="Estonia"
 Period_for_fitting=14
 Period_for_predicting=23
 Number_of_case_curves=20
+<<<<<<< HEAD
 Days_to_event<-0
 Time_to_symptom_onset<-5
 Time_from_symptom_to_test_result<-4
 Cases_detected=1
 filename="chosen_prevalence_data.csv"
+=======
+filename="chosen_prevalence_data.csv"
+Days_to_event<-0
+Time_to_symptom_onset<-5
+Time_from_symptom_to_test_result<-4
+>>>>>>> 5fb3f27b2677538f3e0e80ba565c0e5cb1fbe24e
 
 
 #Load the Our World In Data dataset
@@ -28,6 +38,16 @@ country_data<-read.csv(file="https://raw.githubusercontent.com/owid/covid-19-dat
 # Convert date to numeric
 country_data$date<-as.numeric(as.Date(country_data$date, "%Y-%m-%d")) 
 
+<<<<<<< HEAD
+=======
+
+#Defining the variables
+
+
+
+
+
+>>>>>>> 5fb3f27b2677538f3e0e80ba565c0e5cb1fbe24e
 # Select the smoothed new cases per million in your country of interest
 chosen_location_data<-filter(country_data, location==Selected_country & date>max(date)-Period_for_fitting) %>% 
   dplyr::select(new_cases_smoothed_per_million)
@@ -82,7 +102,7 @@ Summarised_case_predictions<-melted_case_curves %>%
   group_by(time) %>% 
   dplyr::summarise(prevalence=mean(value/1000000), sd_prevalence=sd(value/1000000))
 
-# Calculate delay between infection and test result
+# Parametrise the delay between infections and cases being reported
 Infection_to_test_result_delay<-Time_to_symptom_onset+Time_from_symptom_to_test_result
 
 #Calculate the date of the cases
@@ -91,7 +111,7 @@ Summarised_case_predictions$Date_of_cases=as.Date(Summarised_case_predictions$ti
 # Create a dataframe of infection
 Infections_df<-data.frame(Date_of_infection=Summarised_case_predictions$Date_of_cases-Infection_to_test_result_delay, Infection_prevalence=Summarised_case_predictions$prevalence/Cases_detected, sd_Infection_prevalence=Summarised_case_predictions$sd_prevalence/Cases_detected)
 
-# Filter to days since infection to less than 14 then sort by days since infection
+# Reverse sort by date of infection
 sorted_case_predictions<-Infections_df[order(Infections_df$Date_of_infection, decreasing=T),]
   
 # save as csv file

@@ -11,6 +11,9 @@ source("preprocessing_functions.R")
 countries = read.csv("population_by_country_2020.csv")
 SENSITIVITY = c(0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
 RELATIVE_INFECTIOUSNESS = c(0,0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
+MASK_EFFICIENCY = 0.5  ### 50% is the recommended value
+MASK_INHALATION_EFFICIENCY =0.3
+
 TAU = 0.1
 
 ui <- fluidPage(
@@ -33,7 +36,7 @@ ui <- fluidPage(
                 label ="When will the event occur?", 
                 value ="2020-09-01",
                 min = NULL,
-                max = NULL,
+                max = "2020-11-29",
                 format = "yyyy-mm-dd",
                 startview = "month",
                 weekstart = 0,
@@ -75,16 +78,23 @@ ui <- fluidPage(
                    label = "Temperature (in Celsius)",
                    value = 20,
                    min=0),
+      numericInput(inputId = "RH",
+                   label = "Relative Humidity (from 20 to 70%)",
+                   value = 20,
+                   min=20,
+                   max=70),
+      numericInput(inputId = "UV",
+                   label = "UV Index from 0 (indoors) to 10 (sunny, outside)",
+                   value = 0,
+                   min=0,
+                   max=10),
       # Horizontal line ----
       tags$hr(),
       numericInput(inputId = "ventilation_out",
                    label = "Ventilation with outside air",
                    value = 0.7,
                    min=0),
-      numericInput(inputId = "decay_rate",
-                   label = "Decay rate of the virus",
-                   value = 0.62,
-                   min=0),
+
       numericInput(inputId = "deposition",
                    label = "Deposition to surfaces",
                    value = 0.3,
@@ -97,15 +107,16 @@ ui <- fluidPage(
                    label = "Total of people present",
                    value = 0,
                    min=0),
-      radioButtons(inputId = "activity",
+      numericInput(inputId = "time2event",
+                   label = "Number of days between Antigen Testing and Event",
+                   value = 0,
+                   min=0,
+                   max=10),
+      selectInput(inputId = "activity",
                    label="What activity will the participants be performing?",
-                   choices = c("singing" = 0,
-                               "eating" = 1,
-                               "walking" = 2,
-                               "light_exercise" = 3,
-                               "strenuous_exercise" = 4),
-                   selected = 0,
-                   inline = TRUE),
+                   choices = read_csv("quanta_emission_rates.csv")$Activity,
+                   selected = NULL,
+                   multiple=TRUE),
       radioButtons(inputId = "mask",
                    label="Will the participants be required to wear any mask",
                    choices = c("no" = 0,
@@ -138,12 +149,17 @@ ui <- fluidPage(
     # Main panel for displaying outputs ----
     mainPanel(
       
-      # Output: Data file ----
-      tableOutput("contents")
+      # Output: Histogram ----
+      tabsetPanel(
+        tabPanel("Disclaimer", htmlOutput("disclaimer")),
+        tabPanel("Plot", htmlOutput("distRes"), plotOutput("distPlot")),
+        #tabPanel("Table", tableOutput("probs")),
+        tabPanel("Report", h3(htmlOutput("Report"))))
       
     )
-    
   )
+    
+  
 )
 
 
@@ -155,45 +171,50 @@ server <- function(input, output, session) {
     
     #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
     ####### Step 1.a: Load participants
-    input = list(country = "France",
-                 date_event= "2020-09-01",
-                 duration = 90,
-                 unit = "m",
-                 length=100,
-                 width = 100,
-                 height = 5,
-                 pressure= 0.95,
-                 quanta_exhalation_rate = 0.4,
-                 temperature = 20,
-                 ventilation_out = 0.7,
-                 decay_rate = 0.62,
-                 deposition = 0.3,
-                 controls = 0,
-                 n=60,
-                 activity = 0,
-                 prop_mask = 0,
-                 breathing_rate=0.4,
-                 mask_efficiency = 0.7,
-                 inhalation_mask_efficiency  = 0.7,
-                 mixing = 0,
-                 mu = 15,
-                 sd = 3
-                 )
-    #df <- read.csv(input$file1$datapath,
-    #               header = TRUE,
-    #               sep = ",")
-    df <- read.csv("mock_data.csv",
-                                 header = TRUE,
-                                   sep = ",")  ### for debugging
+    # input = list(country = "France",
+    #              date_event= "2020-09-01",
+    #              duration = 90,
+    #              unit = "m",
+    #              length=100,
+    #              width = 100,
+    #              height = 5,
+    #              pressure= 0.95,
+    #              quanta_exhalation_rate = 0.4,
+    #              temperature = 20,
+    #              ventilation_out = 0.7,
+    #              decay_rate = 0.62,
+    #              deposition = 0.3,
+    #              controls = 0,
+    #              n=60,
+    #              activity = 0,
+    #              prop_mask = 0,
+    #              breathing_rate=0.4,
+    #              mask_efficiency = 0.7,
+    #              inhalation_mask_efficiency  = 0.7,
+    #              mixing = 0,
+    #              mu = 15,
+    #              sd = 3
+    #              )
+    df <- read.csv(input$file1$datapath,
+                   header = TRUE,
+                   sep = ",")
+    DECAY =(7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
+            0.02175703466389*(input$RH-45.235)/28.665+7.55272292970083*((input$UV*0.185)-50) / 50 +
+            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+    # df <- read.csv("mock_data.csv",
+    #                              header = TRUE,
+    #                                sep = ",")  ### for debugging
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence =  rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=input$date_event & Date_of_infection>=input$date_event-14)
+    PREVALENCE = filtered_prevalence_df$infection_prevalence
     
     ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height)
     first_order_loss_rate = extract_first_order(input$ventilation,
                                                 input$control,
-                                                input$decay,
+                                                DECAY,
                                                 input$deposition)
     ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
                                                                       input$ventilation,
@@ -205,7 +226,7 @@ server <- function(input, output, session) {
     group_assignment = sapply(0:(length(SENSITIVITY)), function(x){paste0("p",x)})
     df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})] =  t(sapply(1:nrow(df), function(x){
       compute_infectiousness_probability(sensitivity = SENSITIVITY,
-                                         prevalence=prevalence,
+                                         prevalence=PREVALENCE,
                                          df$profession[x],
                                          df$high_risk_contact[x],
                                          df$mask_wearing[x],
@@ -252,11 +273,11 @@ server <- function(input, output, session) {
         ####### Step 3.a Direct contacts
         contacts  = rnorm(length(Z), mean = input$mu, sd = input$sd)
         nb_infections[b] = sapply(1:length(Z),
-                                  function(x){rbinom(1,round(contacts[x]), TAU *  RELATIVE_INFECTIOUSNESS[Z[x]])})
+                                  function(x){rbinom(1,round(contacts[x]), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])})
         
         ####### Step 3.b Aerosolization
-        quanta_emission_rate <- compute_quanta_emission_rate(input$quanta_exhalation_rate,
-                                                             input$mask_efficiency ,
+        quanta_emission_rate <- compute_quanta_emission_rate(activity,
+                                                             MASK_EFFICIENCY ,
                                                              input$prop_mask,
                                                              nb_infective_people[b])
         quanta_concentration <- compute_quanta_concentation(quanta_emission_rate,
@@ -267,7 +288,7 @@ server <- function(input, output, session) {
         quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
                                                                        input$breathing_rate,
                                                                        input$duration,
-                                                                       input$inhalation_mask_efficiency,
+                                                                       MASK_INHALATION_EFFICIENCY,
                                                                        input$prop_mask)
         
         p[b] = 1-exp(-quanta_inhaled_per_person)
@@ -284,7 +305,7 @@ server <- function(input, output, session) {
       nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
       nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
     }
-    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_infections=nb_infections))
+    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations))
   })
   
   output$contents <- renderTable({
@@ -302,6 +323,31 @@ server <- function(input, output, session) {
     return(head(df))
     
     
+  })
+  
+  output$disclaimer = renderUI({
+    tags$div(
+      tags$p("This questionnaire uses your personal information and your symptoms history to evaluate your probability of having had COVID. Your answers can be combined with your antibody test result to yield a personalized and better-informed probability of having antibodies."), 
+      tags$p("Our method has been designed in collaboration with medical experts. However, we are not medical experts ourselves. Do not rely on this tool for medical advice. Specifically, the likely presence of COVID antibodies does not necessarily mean that you are immune to COVID, as research on this topic is still ongoing."), 
+      tags$p("We do not save any of your personal information, nor answers to this questionnaire."),
+      tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see your results")
+    )
+  })
+  
+  output$distPlot <- renderPlot({
+    x =  dataInput()
+    
+    hist(x$nb_infections, col = "#75AADB", border = "white",
+         xlab = "N",
+         main ="Nb of predicted infections" )
+  })
+  
+  output$distRes <- renderText({
+    x =  dataInput()
+    #### Write the report
+    conclusion = ""
+    conclusion = paste0(conclusion, "</div>")
+    HTML(conclusion)
   })
   
   
