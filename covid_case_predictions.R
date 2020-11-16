@@ -97,3 +97,13 @@ sorted_case_predictions<-Infections_df[order(Infections_df$Date_of_infection, de
 # save as csv file
 write.csv(x=sorted_case_predictions,file = filename)
 
+ggplot(melted_case_curves, aes(x=time, y=value, colour=variable))+
+  geom_line()+
+  theme_classic()
+
+ggplot(Summarised_case_predictions, aes(x=time, y=prevalence*1000000))+
+  geom_line()+
+  geom_errorbar(aes(ymin=10^6*(prevalence-sd_prevalence), ymax=10^6*(prevalence+sd_prevalence)))+
+  theme_classic()+
+  scale_y_continuous(limits=c(0,NA), labels = scales::comma)+
+  labs(x="Time (Days)", y="COVID cases per million")
