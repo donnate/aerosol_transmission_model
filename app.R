@@ -187,7 +187,6 @@ server <- function(input, output, session) {
             0.02175703466389*(input$RH-45.235)/28.665 + 
             7.55272292970083*((input$UV*0.185)-50) / 50 +
             (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602) *60)  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
-    df <- read.csv("mock_data.csv", header = TRUE, sep = ",")  ### for debugging
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
@@ -212,6 +211,17 @@ server <- function(input, output, session) {
                                                                       ventilation,
                                                                       as.numeric(input$control),
                                                                       input$n)
+    
+    quanta_emission_rate0 <- compute_quanta_emission_rate(input$activity,
+                                                         MASK_EFFICIENCY ,
+                                                         input$prop_mask,
+                                                         1)
+    
+    quanta_concentration0 <- compute_quanta_concentation(quanta_emission_rate0,
+                                                        first_order_loss_rate,
+                                                        volume,  
+                                                        input$duration,
+                                                        1)
     #print(paste0("ventilation_rate_per_person : ",ventilation_rate_per_person ))
     ##########################################
     #### Step 2: compute probability of being infectious, hospitalized,and dying
@@ -249,7 +259,7 @@ server <- function(input, output, session) {
     
 
     ##########################################
-    B = 10000
+    B = 5000
     nb_infective_people = rep(0,B)
     nb_infections = rep(0,B)
     p = rep(0,B)
@@ -259,27 +269,22 @@ server <- function(input, output, session) {
     #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
     for (b in 1:B){
       ####### draw infected people (their infectivity bucket)
+      
       Z = apply(df[group_assignment], MARGIN = 1, function(x){which(rmultinom(1,1,x)>0)-1})
+      nb_infective_people[b] = sum((Z>0))
       Z = Z[(Z>0)]  #### keep infected people only
-      nb_infective_people[b] = length(Z)
+      
       if (nb_infective_people[b] > 0){
         ####### Step 3.a Direct contacts
         contacts  = rnorm(length(Z), mean = MU, sd = SD)
-        nb_infections[b] = sapply(1:length(Z),
-                                  function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])})
+        nb_infections[b] = sum(sapply(1:length(Z),
+                                  function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])}))
         
         ####### Step 3.b Aerosolization
-        quanta_emission_rate <- compute_quanta_emission_rate(input$activity,
-                                                             MASK_EFFICIENCY ,
-                                                             input$prop_mask,
-                                                             nb_infective_people[b])
+        #quanta_emission_rate <- quanta_emission_rate0 * nb_infective_people[b]
         #print(paste0("quanta_emission_rate: ",quanta_emission_rate))
 
-        quanta_concentration <- compute_quanta_concentation(quanta_emission_rate,
-                                                           first_order_loss_rate,
-                                                           volume,  
-                                                           input$duration,
-                                                           nb_infective_people[b])
+        quanta_concentration <- quanta_concentration0 * nb_infective_people[b]
         #print(paste0("quanta_concentration: ",quanta_concentration))
         quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
                                                                        BREATHING_RATE,
