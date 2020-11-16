@@ -1,13 +1,10 @@
 # Define UI for app that draws a histogram ----
 library("shiny")
 library("tidyverse")
-library(MCMCpack)
 library(gridExtra)
-setwd("~/Dropbox/aerosol_transmission_model/")
 source("individual_probabilities.R")
 source("helper_functions.R")
 source("aerosol_functions.R")
-source("preprocessing_functions.R")
 
 countries = read.csv("population_by_country_2020.csv")
 
@@ -378,7 +375,7 @@ server <- function(input, output, session) {
       theme_classic()
     
     pt3 <- ggplot(data.frame(N=x$nb_infections))+
-      geom_histogram(aes(x=N,y=..count../sum(..count..)))+
+      geom_histogram(aes(x=N))+
       theme_classic()
     ptlist <- list(pt1,pt2,pt3)
     if (length(ptlist)==0) return(NULL)

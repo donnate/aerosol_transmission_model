@@ -1,0 +1,13 @@
+name: aerosol_transmission_model
+title: aerosol_transmission_model
+username:
+account: homecovidtests
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3240246
+bundleId: 3865759
+url: https://homecovidtests.shinyapps.io/aerosol_transmission_model/
+when: 1605512032.71504
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: Characteristics.csv|covid_case_predictions.R|Inhalation rate.csv|main_individual.R|Medical_Conditions.csv|mock_data.csv|preprocessing_functions.R|README.md|united_states_covid19_cases_and_deaths_by_state.csv
