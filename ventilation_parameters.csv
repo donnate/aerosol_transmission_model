@@ -1,0 +1,31 @@
+﻿category,rp,ra
+cell,2.5,0.6
+Daycare,5,0.9
+Classroom (age 5 to 8),5,0.6
+Classroom (age 9 and above),5,0.6
+Lecture classroom,3.8,0.3
+Lecture Hall,3.8,0.3
+Art classroom,5,0.9
+Science Lab,5,0.9
+University Lab,5,0.9
+Metal shop,5,0.9
+Computer Lab,5,0.6
+Music/Theater/Dance,5,0.3
+Assembly,3.8,0.3
+Restaurant/dining,3.8,0.9
+Cafeteria/Fastfood,3.8,0.9
+Bars,3.8,0.9
+Kitchen,3.8,0.6
+Pharmacy,5,0.9
+Transportation (waiting),5,0.3
+Auditorium/Seating Area,2.5,0.3
+Place of worship,2.5,0.3
+Courtroom,2.5,0.3
+Library,2.5,0.6
+Lobby,2.5,0.3
+Supermarket,3.8,0.9
+Beauty/nail salon,10,0.6
+Gym,10,0.9
+Spectator area (sports/entertainment),3.8,0.3
+Disco,10,0.3
+Bowling alley,5,0.6

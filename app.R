@@ -2,6 +2,7 @@
 library("shiny")
 library("tidyverse")
 library(MCMCpack)
+library(gridExtra)
 setwd("~/Dropbox/aerosol_transmission_model/")
 source("individual_probabilities.R")
 source("helper_functions.R")
@@ -9,12 +10,17 @@ source("aerosol_functions.R")
 source("preprocessing_functions.R")
 
 countries = read.csv("population_by_country_2020.csv")
-BREATHING_RATE = 0.7
-SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
-RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
+
+BREATHING_RATE = 0.012 * 60 
+DEPOSITION = 0.24
 MASK_EFFICIENCY = 0.5  ### 50% is the recommended value
-MASK_INHALATION_EFFICIENCY =0.3
-TAU = 0.2
+MASK_INHALATION_EFFICIENCY = 0.3
+PRESSURE = 0.95
+RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
+SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
+
+
+TAU = 0.06
 MU = 20
 SD = 4
 
@@ -33,7 +39,7 @@ ui <- fluidPage(
       selectInput(inputId = "country",
                   label = "Which country do you live in?",
                   choices = countries$Country,
-                  selected = "United Kingdom"),
+                  selected = "Estonia"),
       dateInput(inputId = "date_event",
                 label ="When will the event occur?", 
                 value ="2020-11-15",
@@ -55,26 +61,22 @@ ui <- fluidPage(
       # Horizontal line ----
       tags$hr(),
       radioButtons(inputId = "unit",
-                   label="What measurement unit will you be using",
+                   label="What measurement unit will you be using?",
                    choices = c("ft" = 1,
                                "m" = 0),
                    selected = 0,
                    inline = TRUE),
       numericInput(inputId = "length",
                    label = "Length (in your selected metric). ",
-                   value = 10,
+                   value = 50,
                    min=0),
       numericInput(inputId = "width",
                    label = "Width (in your selected metric).",
-                   value = 10,
+                   value = 50,
                    min=0),
       numericInput(inputId = "height",
                    label = "Height (in your selected metric).",
-                   value = 10,
-                   min=0),
-      numericInput(inputId = "pressure",
-                   label = "Pressure (in atm) ",
-                   value = 0.95,
+                   value = 5,
                    min=0),
       numericInput(inputId = "temperature",
                    label = "Temperature (in Celsius)",
@@ -86,28 +88,25 @@ ui <- fluidPage(
                    min=20,
                    max=70),
       numericInput(inputId = "UV",
-                   label = "UV Index from 0 (indoors) to 10 (sunny, outside)",
+                   label = "UV Index from 0 (indoors) to 10 (noon, sunny, outside)",
                    value = 0,
                    min=0,
                    max=10),
       # Horizontal line ----
       tags$hr(),
-      numericInput(inputId = "ventilation",
-                   label = "Ventilation with outside air",
-                   value = 0.7,
-                   min=0),
-
-      numericInput(inputId = "deposition",
-                   label = "Deposition to surfaces",
-                   value = 0.3,
-                   min=0),
-      numericInput(inputId = "control",
-                   label = "Additional control measures",
-                   value = 0,
-                   min=0),
+      selectInput(inputId = "ventilation",
+                  label = "Which category will be the ventilation at the event be like?",
+                  choices = read_csv("ventilation_parameters.csv")$category,
+                  selected = "Daycare",
+                  multiple=FALSE),
+      radioButtons(inputId = "control",
+                  label = "Additional control measures?",
+                  choices = c("None"= 0,
+                              "HEPA filter"= 440),
+                  selected = 0), inline=TRUE,
       numericInput(inputId = "n",
                    label = "Total of people present",
-                   value = 5,
+                   value = 1000,
                    min=1),
       numericInput(inputId = "time2event",
                    label = "Number of days between Antigen Testing and Event",
@@ -117,7 +116,7 @@ ui <- fluidPage(
       selectInput(inputId = "activity",
                    label="What activity will the participants be performing?",
                    choices = read_csv("quanta_emission_rates.csv")$Activity,
-                   selected = NULL,
+                   selected = "Standing:Loudly speaking",
                    multiple=TRUE),
       radioButtons(inputId = "mask",
                    label="Will the participants be required to wear any mask",
@@ -139,7 +138,7 @@ ui <- fluidPage(
   
       # Input: Select a file ----
       fileInput("file1", "Upload participants' information (choose CSV File)",
-                multiple = TRUE,
+                multiple = FALSE,
                 accept = c("text/csv",
                            "text/comma-separated-values,text/plain",
                            ".csv")),
@@ -147,9 +146,7 @@ ui <- fluidPage(
       # Horizontal line ----
       tags$hr(),
       
-      
-      # Horizontal line ----
-      tags$hr(),
+
       
     ),
     
@@ -159,7 +156,7 @@ ui <- fluidPage(
       # Output: Histogram ----
       tabsetPanel(
         tabPanel("Disclaimer", htmlOutput("disclaimer")),
-        tabPanel("Plot", htmlOutput("distRes"), plotOutput("distPlot")),
+        tabPanel("Plot", htmlOutput("distRes"), plotOutput("plotgraph"), tableOutput("contents")),
         #tabPanel("Table", tableOutput("probs")),
         tabPanel("Report", h3(htmlOutput("Report"))))
       
@@ -178,42 +175,45 @@ server <- function(input, output, session) {
     
     #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
     ####### Step 1.a: Load participants
-    #df <- read.csv(input$file1$datapath,
-    #               header = TRUE,
-    #               sep = ",")
-    DECAY = (7.56923714795655+1.41125518824508*(input$temperature-20.54)/10.66 +
-            0.02175703466389*(input$RH-45.235)/28.665+7.55272292970083*((input$UV*0.185)-50) / 50 +
-            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602)*60  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
-    print(paste0("Decay:",  DECAY))
-    df <- read.csv("mock_data.csv",
-                                  header = TRUE,
-                                    sep = ",")  ### for debugging
+    if (is.null(input$file1$datapath) == FALSE){
+      df <- read.csv(input$file1$datapath,
+                     header = TRUE,
+                     sep = ",")
+    }else{
+      df <- data.frame(matrix(0,nrow=input$n, ncol=15))
+      names(df) <- c("Age", "Sex", "Pregnant", "Chronic_Renal_Insufficiency" , "Diabetes",
+                     "Immunosuppression", "COPD", "Obesity", "Hypertension", "Tobacco", "Cardiovascular_Disease",
+                     "Asthma", "profession", "high_risk_contact","nb_people_hh")
+    }
+    DECAY = max(0, (7.56923714795655 + 
+            1.41125518824508 * (input$temperature-20.54)/10.66 +
+            0.02175703466389*(input$RH-45.235)/28.665 + 
+            7.55272292970083*((input$UV*0.185)-50) / 50 +
+            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602) *60)  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+    df <- read.csv("mock_data.csv", header = TRUE, sep = ",")  ### for debugging
+    
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-<<<<<<< HEAD
     prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
-    PREVALENCE = filtered_prevalence_df$infection_prevalence
-    filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
-    Baseline_infections_on_event_day<-rnorm(n=1000, mean=filtered_prevalence_df2$Infection_prevalence, sd=filtered_prevalence_df2$sd_Infection_prevalence)
-    
-    
-=======
-    prevalence_df =  read_csv("chosen_prevalence_data.csv") 
-    filtered_prevalence_df = prevalence_df%>% filter(Date_of_infection<=input$date_event & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
+    filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
 
->>>>>>> 6eb4ea282e3414df0b58843231d7a05935f6ba9c
+
     ###### Step 1.b: compute room parameters for aerosolization
     volume = extract_volume(input$length, input$width, input$height, input$unit)
-    first_order_loss_rate = extract_first_order(input$ventilation,
-                                                input$control,
+    surface = extract_surface(input$length, input$width, input$unit)
+    occupant_density = input$n /surface
+    ventilation <- lookup_ventilation(input$ventilation, input$n, occupant_density, surface, volume)
+    first_order_loss_rate = extract_first_order(ventilation,
+                                                as.numeric(input$control),
                                                 DECAY,
-                                                input$deposition)
+                                                DEPOSITION)
     #print(paste0("first_order_loss_rate: ",first_order_loss_rate))
+    
     ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
-                                                                      input$ventilation,
-                                                                      input$control,
+                                                                      ventilation,
+                                                                      as.numeric(input$control),
                                                                       input$n)
     #print(paste0("ventilation_rate_per_person : ",ventilation_rate_per_person ))
     ##########################################
@@ -252,12 +252,13 @@ server <- function(input, output, session) {
     
 
     ##########################################
-    B = 1000
+    B = 10000
     nb_infective_people = rep(0,B)
     nb_infections = rep(0,B)
     p = rep(0,B)
     nb_hospitalizations = rep(0,B)
     nb_deaths = rep(0,B)
+    Baseline_infections_on_event_day <- rep(0, B)
     #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
     for (b in 1:B){
       ####### draw infected people (their infectivity bucket)
@@ -271,7 +272,7 @@ server <- function(input, output, session) {
                                   function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])})
         
         ####### Step 3.b Aerosolization
-        quanta_emission_rate <- compute_quanta_emission_rate(activity,
+        quanta_emission_rate <- compute_quanta_emission_rate(input$activity,
                                                              MASK_EFFICIENCY ,
                                                              input$prop_mask,
                                                              nb_infective_people[b])
@@ -293,22 +294,25 @@ server <- function(input, output, session) {
         p[b] = 1.-exp(-quanta_inhaled_per_person[[1]])
         nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
                                                       p[b])
-        
+        little_p = rnorm(n=1, mean=filtered_prevalence_df2$Infection_prevalence,
+                         sd=filtered_prevalence_df2$sd_Infection_prevalence)
+        Baseline_infections_on_event_day[b] <- rbinom(1, input$n, max(min(little_p, 1), 0))
       }
 
       
     }
     
     #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
-    for (b in 1:B){
+    for (b in which(is.nan(nb_infections == FALSE))){
       ###### Sample from the list
-      #print(nb_infections[b])
       if (nb_infections[b] >0){
            nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
            nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
       }
     }
-    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations))
+    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations,
+                Baseline_infections_on_event_day = Baseline_infections_on_event_day,
+                prevalence_df=prevalence_df, n = input$n))
   })
   
   output$contents <- renderTable({
@@ -317,13 +321,25 @@ server <- function(input, output, session) {
     # and uploads a file, head of that data file by default,
     
     # or all rows if selected, will be shown.
-    
-    req(input$file1)
-    
-    df <- read.csv(input$file1$datapath,
-                   header = TRUE,
-                   sep = ",")
-    return(head(df))
+    x =  dataInput()
+    # set up cut-off values 
+    breaks <- c(0,2,4,6,8,10,15,20,25,30,40,50,60,70,80,90,100,200, x$n)
+    # specify interval/bin labels
+    tags_x <- c("[0-2)","[2-4)", "[4-6)", "[6-8)", "[8-10)", "[10-15)", "[15-20)","[16-18)", "[18-20)",
+              "[20-25)","[25-30)", "[30-40)", "[40-50)", "[50-60)", "[60-70)","[70-80)", "[80-90)","[90-100)")
+    # bucketing values into bins
+    df <- data.frame(Setting = c("Event", "Baseline"))
+    group_tags <- cut(x$nb_infections, 
+                      breaks=breaks, 
+                      include.lowest=TRUE, 
+                      right=FALSE)
+    gp2 = cut(x$Baseline_infections_on_event_day, 
+              breaks=breaks, 
+              include.lowest=TRUE, 
+              right=FALSE)
+    options(digits=7)
+    df <- cbind(df, rbind(summary(group_tags) ,summary(gp2)))
+    return(df)
     
     
   })
@@ -331,7 +347,7 @@ server <- function(input, output, session) {
   output$disclaimer = renderUI({
     tags$div(
       tags$p("This calculator uses the predicted number of infections in a country, the characteristics of the event, the participants and the screening protocol to estimate the number of infections, hospitalisations and deaths that are likely to result from holding the event"), 
-      tags$p("Our method has been designed in collaboration with medical experts. However, we are not medical experts ourselves. Do not rely on this tool for medical advice."), 
+      tags$p("This risk estimator is not exact!!! It should not be understood as exact, but rather, to understand order of magnitude for the risk."), 
       tags$p("We do not save any of the information you input or upload"),
       tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see our predictions")
     )
@@ -340,32 +356,34 @@ server <- function(input, output, session) {
 
   
   pt1 <- reactive({
-    ggplot(prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
+    x =  dataInput()
+    ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
     geom_point()+
     geom_line()+
     geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,ymin=Infection_prevalence+sd_Infection_prevalence))+
     theme_classic()
   })
   
-  pt2 <- reactive({
-    ggplot(Baseline_infections_on_event_day)+
-      geom_histogram()+
-      theme_classic()
-    
-  })
-  
-  pt3 <- reactive({
-    hist(x$nb_infections, col = "#75AADB", border = "white",
-         xlab = "N",
-         main ="Nb of predicted infections",
-         na.rm=TRUE)
-  })
   
   output$plotgraph = renderPlot({
-    ptlist <- list(pt1(),pt2(),pt3())
+    x =  dataInput()
+    pt1 <- ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
+        geom_point()+
+        geom_line()+
+        geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,
+                          ymax=Infection_prevalence+sd_Infection_prevalence))+
+        theme_classic()
+    pt2 <-  ggplot(data.frame(N=x$Baseline_infections_on_event_day))+
+      geom_histogram(aes(N))+
+      theme_classic()
+    
+    pt3 <- ggplot(data.frame(N=x$nb_infections))+
+      geom_histogram(aes(x=N,y=..count../sum(..count..)))+
+      theme_classic()
+    ptlist <- list(pt1,pt2,pt3)
     if (length(ptlist)==0) return(NULL)
     
-    grid.arrange(grobs=ptlist,nrow=length(ptlist))
+    grid.arrange(pt1,pt2,pt3,nrow=length(ptlist))
   })
   
   output$distRes <- renderText({
