@@ -17,9 +17,9 @@ RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.
 SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
 
 
-TAU = 0.06
-MU = 20
-SD = 4
+TAU = 0.06/4
+MU = 5
+SD = 2
 
 ui <- fluidPage(
   
@@ -276,7 +276,8 @@ server <- function(input, output, session) {
       
       if (nb_infective_people[b] > 0){
         ####### Step 3.a Direct contacts
-        contacts  = rnorm(length(Z), mean = MU, sd = SD)
+        contacts  =rnorm(length(Z), mean = MU, sd = SD)
+        contacts[contacts<1]=1
         nb_infections[b] = sum(sapply(1:length(Z),
                                   function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])}))
         
