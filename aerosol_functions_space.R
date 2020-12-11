@@ -18,6 +18,7 @@ compute_quanta_concentation <- function(quanta_emission_rate,
   ##        (1 - 1/first_order_loss_rate / duration)* (1 -exp(- first_order_loss_rate * duration)) * 
   ##          nb_infective_people)
   if(nb_infective_people_close > 0){
+    quanta_concentration <- 0
     for(i in 1:nb_infective_people_close){
      #### 2 metres/6 feet is tipping point for close contact, within close range we calculate the escalated concentration
       quanta_concentration <- quanta_concentration + quanta_emission_rate/first_order_loss_rate/(2 pi * distance[i] * 1.5 * vr) *               #### Volume=pi*distance^2*H, H is set to be 1.5 m.
