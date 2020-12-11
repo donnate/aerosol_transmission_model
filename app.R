@@ -363,12 +363,15 @@ server <- function(input, output, session) {
   
   output$plotgraph = renderPlot({
     x =  dataInput()
-    pt1 <- ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
+    pt1 <- ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence*10^6))+
         geom_point()+
         geom_line()+
-        geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,
-                          ymax=Infection_prevalence+sd_Infection_prevalence))+
-        theme_classic() 
+        geom_errorbar(aes(ymin=10^6*(Infection_prevalence-sd_Infection_prevalence),
+                          ymax=10^6*(Infection_prevalence+sd_Infection_prevalence)))+
+        theme_classic()+
+        scale_y_continuous(limits=c(0,NA), labels = scales::comma)+
+        labs(x="Time (Days)", y="COVID cases per million")
+
     pt2 <-  ggplot(data.frame(N=x$Baseline_infections_on_event_day))+
       geom_histogram(aes(N))+
       theme_classic()
