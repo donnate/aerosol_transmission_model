@@ -2,7 +2,7 @@
 library("shiny")
 library("tidyverse")
 library(gridExtra)
-source("individual_probabilities.R")
+source("proba_adverse_outcome.R")
 source("helper_functions.R")
 source("aerosol_functions.R")
 
@@ -142,8 +142,7 @@ ui <- fluidPage(
       
       # Horizontal line ----
       tags$hr(),
-      
-
+    
       
     ),
     
@@ -155,7 +154,8 @@ ui <- fluidPage(
         tabPanel("Disclaimer", htmlOutput("disclaimer")),
         tabPanel("Plot", htmlOutput("distRes"), plotOutput("plotgraph"), tableOutput("contents")),
         #tabPanel("Table", tableOutput("probs")),
-        tabPanel("Report", h3(htmlOutput("Report"))))
+        tabPanel("Report", h3(htmlOutput("Report")), tableOutput("summary_participants_properties"),
+                 tableOutput("summary_comparison")))
       
     )
   )
@@ -190,7 +190,7 @@ server <- function(input, output, session) {
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence_df =  read_csv("chosen_prevalence_data.csv")#rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    prevalence_df =  read_csv("chosen_prevalence_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
     filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
@@ -205,8 +205,7 @@ server <- function(input, output, session) {
                                                 as.numeric(input$control),
                                                 DECAY,
                                                 DEPOSITION)
-    #print(paste0("first_order_loss_rate: ",first_order_loss_rate))
-    
+  
     ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
                                                                       ventilation,
                                                                       as.numeric(input$control),
@@ -236,28 +235,10 @@ server <- function(input, output, session) {
       }))
     df$p0 = 1 - apply(df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})],1,sum)
     #print(df[group_assignment])
-    df$p_hosp =  unlist(sapply(1:nrow(df), function(x){
-      compute_hospitalization_probability(df$Age[x], df$Pregnant[x],
-                                            df$Chronic_Renal_Insufficiency[x],
-                                            df$Diabetes[x], df$Immunosuppression[x],
-                                            df$COPD[x], df$Obesity[x], 
-                                            df$Hypertension[x],
-                                            df$Tobacco[x], df$Cardiovascular_Disease[x],
-                                            df$Asthma[x], df$Sex[x])
-    }))
+    adverse_outcome <- sapply(df$Age,hospitalization_risk)
+    df["p_hosp"] = adverse_outcome[1,]
+    df["p_death"] = adverse_outcome[2,]
     
-    df$p_death =  unlist(sapply(1:nrow(df), function(x){
-      compute_death_probability(df$Age[x], df$Pregnant[x],
-                                            df$Chronic_Renal_Insufficiency[x],
-                                            df$Diabetes[x], df$Immunosuppression[x],
-                                            df$COPD[x], df$Obesity[x], 
-                                            df$Hypertension[x],
-                                            df$Tobacco[x], df$Cardiovascular_Disease[x],
-                                            df$Asthma[x], df$Sex[x])
-    }))
-    
-    
-
     ##########################################
     B = 5000
     nb_infective_people = rep(0,B)
@@ -278,6 +259,7 @@ server <- function(input, output, session) {
         ####### Step 3.a Direct contacts
         contacts  =rnorm(length(Z), mean = MU, sd = SD)
         contacts[contacts<1]=1
+        #### Attempt at spatial modelling -- perhaps best to keep the two models separate for now as we are developping the tool
         nb_infections[b] = sum(sapply(1:length(Z),
                                   function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event])}))
         
@@ -285,7 +267,7 @@ server <- function(input, output, session) {
         #quanta_emission_rate <- quanta_emission_rate0 * nb_infective_people[b]
         #print(paste0("quanta_emission_rate: ",quanta_emission_rate))
 
-        quanta_concentration <- quanta_concentration0 * nb_infective_people[b]
+        quanta_concentration <- quanta_concentration0 * sum(sapply(1:length(Z), function(x){RELATIVE_INFECTIOUSNESS[Z[x] + input$time2event]}))
         #print(paste0("quanta_concentration: ",quanta_concentration))
         quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
                                                                        BREATHING_RATE,
@@ -295,27 +277,38 @@ server <- function(input, output, session) {
         #print(paste0("quanta_inhaled_per_person: ",quanta_inhaled_per_person))
         
         p[b] = 1.-exp(-quanta_inhaled_per_person[[1]])
+        #nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
+        #                                              p[b])
         nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
                                                       p[b])
         little_p = rnorm(n=1, mean=filtered_prevalence_df2$Infection_prevalence,
                          sd=filtered_prevalence_df2$sd_Infection_prevalence)
-        Baseline_infections_on_event_day[b] <- rbinom(1, input$n, max(min(little_p, 1), 0))
+        Baseline_infections_on_event_day[b] <- nb_infective_people[b] + rbinom(1, input$n, max(min(little_p, 1), 0))
       }
 
       
     }
     
-    #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes
+    #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes and secondary attack rates
     for (b in which(is.nan(nb_infections == FALSE))){
       ###### Sample from the list
       if (nb_infections[b] >0){
            nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
            nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
+           nb_secondary_hospitalizations[b] = sum(sapply(sample(df$nb_people_hh, nb_infections[b]), function(x){
+              ### select
+              rbinom(x,1,0.53)
+              #### Not quite sure how much information we have on the secondary people
+             }))
+           nb_secondary_hospitalizations[b] = rbinom(nb_secondary_hospitalizations[b], 1, 0.002)
       }
     }
     return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations,
                 Baseline_infections_on_event_day = Baseline_infections_on_event_day,
-                prevalence_df=prevalence_df, n = input$n))
+                prevalence_df=prevalence_df, n = input$n,
+                nb_secondary_infections = nb_secondary_infections,
+                nb_secondary_deaths=nb_secondary_deaths,
+                nb_secondary_hospitalizations=nb_secondary_hospitalizations))
   })
   
   output$contents <- renderTable({
@@ -375,7 +368,7 @@ server <- function(input, output, session) {
         geom_line()+
         geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,
                           ymax=Infection_prevalence+sd_Infection_prevalence))+
-        theme_classic()
+        theme_classic() 
     pt2 <-  ggplot(data.frame(N=x$Baseline_infections_on_event_day))+
       geom_histogram(aes(N))+
       theme_classic()
@@ -396,6 +389,100 @@ server <- function(input, output, session) {
     conclusion = paste0(conclusion, "</div>")
     HTML(conclusion)
   })
+  
+  
+  output$summary_participants_properties<-renderTable({
+     #### Renders table with summary statistics for the participants (age and gender, nb of people in household)
+    df = data.frame(rbind(
+      c(paste0(nrow(input$df), ' participants'), paste0(100 *mean(input$df["sex"] == "Male"), " % Female"), paste0(100 *mean(input$df["sex"] == "Female"), " % Female")),
+      c(mean(input$df["age"]), quantile(input$df["age"], 0.025), quantile(input$df["age"], 0.975)),
+      c(mean(input$df["nb_people_hh"]), quantile(input$df["nb_people_hh"], 0.025),
+quantile(input$df["nb_people_hh"], 0.975))
+    ))
+    colnames(df) <- c("Mean", "2.5th Quantile", "97.5th Quantile")
+    row.names(df) < c("General", "Age", "Nb of people in household")
+  })
+  
+  output$summary_comparisons <-renderTable({
+    #### Renders table with summary statistics for the participants (age and gender, nb of people in household)
+    x = dataInput()
+    df = data.frame(rbind(
+      c(mean(x$nb_infections), quantile(x$nb_infections, 0.025), quantile(x$nb_infections, 0.975)),
+      c(mean(x$Baseline_infections_on_event_day), quantile(x$Baseline_infections_on_event_day, 0.025), quantile(x$Baseline_infections_on_event_day, 0.975)),
+      c(mean(x$nb_hospitalizations), quantile(x$nb_hospitalizations, 0.025), quantile(x$nb_hospitalizations, 0.975)),
+      c(mean(x$Baseline_hosp_on_event_day), quantile(x$Baseline_hosp_on_event_day, 0.025), quantile(x$Baseline_hosp_on_event_day, 0.975)),
+      c(mean(x$nb_deaths), quantile(x$nb_deaths, 0.025), quantile(x$nb_deaths, 0.975)),
+      c(mean(x$Baseline_deaths_on_event_day), quantile(x$Baseline_deaths_on_event_day, 0.025), quantile(x$Baseline_deaths_on_event_day, 0.975))
+    ))
+    colnames(df) <- c("Mean", "2.5th Quantile", "97.5th Quantile")
+    row.names(df) < c("Event: Infections", "Baseline: Infections",
+                      "Event: Hospitalizations", "Baseline: Hospitalizations", 
+                      "Event: Deaths", "Baseline: Deaths")
+  })
+  
+  
+  comparison_with_other_diseases<-reactive({
+  #### Renders comparison of the fatality of COVID with respect to other diseases
+    "By "
+  })
+  
+  comparison_with_car_accidents <-reactive({
+    #### Renders comparison of fatalities due to car accidents
+  })
+  
+  comparison_with_H0 <-reactive({
+    #### Renders comparison with H0 (table)
+    
+  })
+  
+  comparison_with_H0_text<-reactive({
+    dat =  dataInput()
+    #### Renders comparison with H0 (text ---- this is an important comparison, so it perhaps deserves more explanations than the rest).
+    x = mean(dat$nb_infections)
+    xx = 0.5 * (quantile(x = dat$nb_infections, 0.975) - quantile(x = dat$nb_infections, 0.025))
+    y = mean(dat$nb_hospitalizations)
+    yy = 0.5 * (quantile(x = dat$nb_hospitalizations, 0.975) - quantile(x = dat$nb_hospitalizations, 0.025))
+    z = mean(dat$nb_deaths)
+    zz = 0.5 * (quantile(x = dat$nb_deaths, 0.975) - quantile(x = dat$nb_deaths, 0.025))
+    xx = 0.5 * (quantile(x = dat$Baseline_infections_on_event_day, 0.975) - quantile(x = dat$Baseline_infections_on_event_day, 0.025))
+    y = mean(dat$Baseline_hosp_on_event_day)
+    yy = 0.5 * (quantile(x = dat$Baseline_hosp_on_event_day, 0.975) - quantile(x = dat$Baseline_hosp_on_event_day, 0.025))
+    z = mean(dat$Baseline_deaths_on_event_day)
+    zz = 0.5 * (quantile(x = dat$Baseline_deaths_on_event_day, 0.975) - quantile(x = dat$Baseline_deaths_on_event_day, 0.025))
+    a = i/x
+    b=  j/y
+    d = ii/ xx
+    p = paste0("The event is projected to yield a total of ", i, " new infections (+/-", ii , "), ", j, " hospitalizations (+/-", jj , "), and ", k, " deaths (+/-", kk , ").  \n")
+    if (input$date_event > Sys.Date()){
+      p = paste0(p, "By comparison, if the event were not to take place, based on the projected prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
+      y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths \n. As such, the average effect of the event would be an increase of ",
+      ifelse( a>1, "an increase of ", "a decrease of "),
+      abs(a-1), " new infections among participants (", ifelse( d>1, "an increase of ", "a decrease of "),
+      abs(d-1), " in the 95th quantile), and ", ifelse( b>1, "an increase of ", "a decrease of "), b -1,
+      " new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
+    }else{
+      p = paste0(p, "By comparison, if the event had not taken place, based on the observed prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
+                   y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths \n. As such, the average effect of the event is ",
+                   ifelse(a>1, "an increase of ", "a decrease of "),
+                   abs(a-1), " new infections among participants (", ifelse(d>1, "an increase of ", "a decrease of "),
+                   abs(d-1), " in the 95th quantile), and ", ifelse(b>1, "an increase of ", "a decrease of "), b -1,
+                   " new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
+    }
+  })
+  
+  
+  output$Report <- renderText({
+    ### Report that needs to quantify the risk of holding the event with respect to other known diseases/ prevelence
+    ### We need: (1) the H0 (better visaulization)
+    ###          (2) Comparison with the risk of having car accidents
+    ###          (3) Other diseases to compare the fatality with
+    gsub(pattern = "\\n", replacement = "<br/>" ,paste0('<p style="font-family:verdana;font-size:14px">',
+                                                        toString(comparison_with_H0_text()$Response),
+                                                        toString(comparison_with_other_diseases()$Response),  
+                                                        "</p>"))
+    
+  })
+  
   
   
   
