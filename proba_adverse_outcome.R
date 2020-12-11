@@ -13,7 +13,7 @@ hospitalization_risk <- function(age){
         (age > 49) + (age > 64) + (age > 74) + (age  > 84)
   a = RISKS %>% filter(`Age Group` == AGE_CAT[cat], Type == "hospitalization")
   b = RISKS %>% filter(`Age Group` == AGE_CAT[cat], Type == "death")
-  risk_hosp = 17.2
+  risk_hosp = 17.2    ###### That seems super high
   risk_death = 0.2
   
   risk_hosp = ifelse(a$Effect == "higher",  (risk_hosp * a$Risk),
