@@ -190,7 +190,7 @@ server <- function(input, output, session) {
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence_df =  read_csv("chosen_prevalence_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
     filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
@@ -253,7 +253,7 @@ server <- function(input, output, session) {
     Baseline_hosp_on_event_day <- rep(0, B)
     Baseline_deaths_on_event_day <- rep(0, B)
     #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
-    withProgress(message = 'Making plot', value = 0, {
+    withProgress(message = paste0('Running ', B, ' simulations'), value = 0, {
     for (b in 1:B){
       ####### draw infected people (their infectivity bucket)
       
