@@ -12,20 +12,26 @@ compute_quanta_emission_rate <- function(activity, mask_efficiency ,
 
 compute_quanta_concentation <- function(quanta_emission_rate,
                                         first_order_loss_rate, volume,                            
-                                        duration, nb_infective_people, distance, vr){                 #### Added (distance, vr) to the original function
+                                        duration, nb_infective_people, distance, vr，nb_infective_people_close){         #### Added (distance, vr, nb_infective_people_close) to the original function
   ### This function computes the quanta emission rate (per hour) given room parameters
   ## return(quanta_emission_rate/first_order_loss_rate/volume * 
   ##        (1 - 1/first_order_loss_rate / duration)* (1 -exp(- first_order_loss_rate * duration)) * 
   ##          nb_infective_people)
-  if(distance<2){   #### 2 metres/6 feet is tipping point for close contact, within close range we calculate the escalated concentration
-      return(quanta_emission_rate/first_order_loss_rate/(pi * distance^2 * 1.5) *               #### Volume=pi*distance^2*H, H is set to be 1.5 m.
-        (1 - exp(- first_order_loss_rate * distance/vr))* (1 -exp(- first_order_loss_rate * duration)))
+  if(nb_infective_people_close > 0){
+    quanta_concentration <- 0
+    for(i in 1:nb_infective_people_close){
+     #### 2 metres/6 feet is tipping point for close contact, within close range we calculate the escalated concentration
+      quanta_concentration <- quanta_concentration + quanta_emission_rate/first_order_loss_rate/(2 pi * distance[i] * 1.5 * vr) *               #### Volume=pi*distance^2*H, H is set to be 1.5 m.
+        (1 - exp(- first_order_loss_rate * distance[i]/vr))
+    }
+    return(quanta_concentration + quanta_emission_rate/first_order_loss_rate/volume * 
+      (1 -exp(- first_order_loss_rate * duration)) * (nb_infective_people - nb_infective_people_close)) 
   }
-  if(distance>=2){
-      return(quanta_emission_rate/first_order_loss_rate/volume * 
-          (1 - 1/first_order_loss_rate / duration)* (1 -exp(- first_order_loss_rate * duration)) * 
-            nb_infective_people)
+  if(nb_infective_people_close == 0){
+    return(quanta_emission_rate/first_order_loss_rate/volume * 
+      (1 -exp(- first_order_loss_rate * duration)) * nb_infective_people)
   }
+  
 }
 
 compute_quanta_inhaled_per_person <- function(quanta_concentration,  breathing_rate,
