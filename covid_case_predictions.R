@@ -6,9 +6,9 @@ library(ggplot2)
 #install.packages('doBy', repos='http://cran.us.r-project.org')
 #library(doBy, lib="~/R_libs")
 library(tidyverse)
-install.packages('slider', lib="~/R_libs", repos='http://cran.us.r-project.org')
+#install.packages('slider', lib="~/R_libs", repos='http://cran.us.r-project.org')
 
-library('slider', lib="~/R_libs")
+library('slider')
 
 
 #Defining the variables
