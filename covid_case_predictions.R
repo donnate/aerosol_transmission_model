@@ -1,11 +1,14 @@
 list.of.packages  <-  c("ggplot2", "doBy", "tidyverse","slider")
-new.packages  <-  list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
-if(length(new.packages)) install.packages(new.packages)
+#new.packages  <-  list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.package, lib="~/R_libs")
 
 library(ggplot2)
-library(doBy)
+#install.packages('doBy', repos='http://cran.us.r-project.org')
+#library(doBy, lib="~/R_libs")
 library(tidyverse)
-library(slider)
+install.packages('slider', lib="~/R_libs", repos='http://cran.us.r-project.org')
+
+library('slider', lib="~/R_libs")
 
 
 #Defining the variables
@@ -13,6 +16,7 @@ library(slider)
 #COUNTRY_DATA <- read.csv("owid-covid-data.csv", header=T)
 
 args = commandArgs(trailingOnly=TRUE)  ### Pass the seed + name of saved file where we want to save the results.
+print(c(args[1],args[2]))
 MAX_DATE  = as.Date(args[1])
 COUNTRY_IND = args[2]
 
@@ -68,7 +72,7 @@ Differences_matrix$date = unlist(country_data_historic_wide[PERIOD_FOR_FITTING:n
 diff_vec = reshape2::melt(as_tibble(Differences_matrix), id.vars=c("date"))
 
 # Find and select the end time points of the closes case curves
-closest_case_curves <- which.minn(diff_vec$value,  NB_OF_CASE_CURVES)
+closest_case_curves <- sort(diff_vec$value,  decreasing = FALSE,index.return=TRUE)$ix[1:NB_OF_CASE_CURVES]
 diff_vec2 = diff_vec[closest_case_curves, ]
 
 # Find all the case data before and after the last date of the best fit curves
