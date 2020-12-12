@@ -18,7 +18,7 @@ library('slider', lib="~/R_libs")
 args = commandArgs(trailingOnly=TRUE)  ### Pass the seed + name of saved file where we want to save the results.
 print(c(args[1],args[2]))
 MAX_DATE  = as.Date(args[1])
-COUNTRY_IND = args[2]
+COUNTRY_IND = as.numeric(args[2])
 
 
 PERIOD_FOR_FITTING = 14
@@ -36,8 +36,7 @@ COUNTRY_DATA$date <- as.numeric(as.Date(COUNTRY_DATA$date, "%Y-%m-%d"))
 COUNTRY = unique(COUNTRY_DATA$location)[COUNTRY_IND]
 # Select the smoothed new cases per million in your country of interest
 
-
-filename=paste0("prevalence_", COUNTRY, "_data.csv")
+filename=paste0("prevalences/prevalence_", COUNTRY, "_", args[1], "_data.csv")
 chosen_location_data <- COUNTRY_DATA %>% 
   dplyr::filter((location==COUNTRY) & (date> MAX_DATE - PERIOD_FOR_FITTING)) %>%
   dplyr::select(new_cases_smoothed_per_million)
