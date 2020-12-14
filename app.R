@@ -3,8 +3,10 @@ library("shiny")
 library("tidyverse")
 library(gridExtra)
 source("proba_adverse_outcome.R")
+source("individual_probabilities.R")
 source("helper_functions.R")
 source("aerosol_functions.R")
+source("covid_case_predictions.R")
 
 countries = read.csv("population_by_country_2020.csv")
 
@@ -190,7 +192,8 @@ server <- function(input, output, session) {
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
+    prevalence_df <- compute_prevalence(min(as.Date(input$date_event), Sys.Date()),input$country)
+    #prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
     filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
@@ -256,7 +259,6 @@ server <- function(input, output, session) {
     withProgress(message = paste0('Running ', B, ' simulations'), value = 0, {
     for (b in 1:B){
       ####### draw infected people (their infectivity bucket)
-      
       Z = apply(df[group_assignment], MARGIN = 1, function(x){which(rmultinom(1,1,x)>0)-1})
       nb_infective_people[b] = sum((Z>0))
       Z = Z[(Z>0)]  #### keep infected people only
@@ -373,13 +375,14 @@ server <- function(input, output, session) {
     ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
     geom_point() +
     geom_line() +
-    geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,ymin=Infection_prevalence+sd_Infection_prevalence))+
+    geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,ymax=Infection_prevalence+sd_Infection_prevalence))+
     theme_classic()
   })
   
   
   output$plotgraph = renderPlot({
     x =  dataInput()
+    print(x$prevalence_df)
     pt1 <- ggplot(x$prevalence_df, aes(x=Date_of_infection, y=Infection_prevalence*10^6))+
         geom_point()+
         geom_line()+
