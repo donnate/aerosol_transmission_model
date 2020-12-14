@@ -14,7 +14,7 @@
 # load modules
 
 ml R
-for ind in {1..1}
+for ind in {1..192}
 do
    job_file="jobs/job${ind}.sh"
    echo ${job_file}

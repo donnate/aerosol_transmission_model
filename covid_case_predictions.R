@@ -7,7 +7,11 @@ library(ggplot2)
 #library(doBy, lib="~/R_libs")
 library(tidyverse)
 #install.packages('slider', lib="~/R_libs", repos='http://cran.us.r-project.org')
+<<<<<<< HEAD
 library(pbapply)
+=======
+
+>>>>>>> 603f681aaf9a78f9b654727e041df6151adc5cd3
 library('slider')
 
 
@@ -15,6 +19,7 @@ library('slider')
 #Load the Our World In Data datas
 #COUNTRY_DATA <- read.csv("owid-covid-data.csv", header=T)
 
+<<<<<<< HEAD
 compute_prevalence <- function(max_date, country){
 
   MAX_DATE = as.Date(max_date)
@@ -53,6 +58,46 @@ compute_prevalence <- function(max_date, country){
       ### might want to 
     }
     sum((data-chosen_location_data$new_cases_smoothed_per_million)^2)
+=======
+args = commandArgs(trailingOnly=TRUE)  ### Pass the seed + name of saved file where we want to save the results.
+print(c(args[1],args[2]))
+MAX_DATE  = as.Date(args[1])
+COUNTRY_IND = as.numeric(args[2])
+
+
+PERIOD_FOR_FITTING = 14
+PERIOD_FOR_PREDICTING = 23
+NB_OF_CASE_CURVES = 20
+DAYS_TO_EVENT = 0
+TIME_TO_SYMPTOM_ONSET = 5
+TIME_FROM_SYMPT_ONSET_TO_TEST_RESULT = 4
+PROPORTION_CASES_DETECTED = 1
+  
+  
+# Convert date to numeric
+COUNTRY_DATA <- read.csv(file="https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv", header=T, sep=",")
+COUNTRY_DATA$date <- as.numeric(as.Date(COUNTRY_DATA$date, "%Y-%m-%d"))
+COUNTRY = unique(COUNTRY_DATA$location)[COUNTRY_IND]
+# Select the smoothed new cases per million in your country of interest
+
+filename=paste0("prevalences/prevalence_", COUNTRY, "_", args[1], "_data.csv")
+chosen_location_data <- COUNTRY_DATA %>% 
+  dplyr::filter((location==COUNTRY) & (date> MAX_DATE - PERIOD_FOR_FITTING)) %>%
+  dplyr::select(new_cases_smoothed_per_million)
+# Select all the other data from other countries which might fit your country of interest
+country_data_historic <- filter(COUNTRY_DATA, date< MAX_DATE - PERIOD_FOR_PREDICTING)
+
+# Convert the data to wide format by location name
+country_data_historic_wide <- country_data_historic %>% 
+  dplyr::select(date, location, new_cases_smoothed_per_million) %>% 
+  pivot_wider(.,names_from=location, values_from=new_cases_smoothed_per_million)
+
+# Define the difference function
+Difference_function <- function(data) {
+  if(sum(is.na(data))>0){
+    return(NA)
+    ### might want to 
+>>>>>>> 603f681aaf9a78f9b654727e041df6151adc5cd3
   }
   # Calculate the differences matrix
   pboptions(type = "txt", style = 1, char = "=")
