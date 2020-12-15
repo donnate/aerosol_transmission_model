@@ -2,6 +2,7 @@
 library("shiny")
 library("tidyverse")
 library(gridExtra)
+library(lme4)
 source("proba_adverse_outcome.R")
 source("individual_probabilities.R")
 source("helper_functions.R")
