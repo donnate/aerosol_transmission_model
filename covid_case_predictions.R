@@ -10,9 +10,6 @@ library(tidyverse)
 library(pbapply)
 library('slider')
 
-# set working directory (on Freddy's computer)
-setwd("C:/Users/fb370/Documents/Non-PostDoc work/Codi/aerosol_transmission_model")
-
 
 compute_prevalence <- function(event_date, country, nb_curves=20){
 
