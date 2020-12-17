@@ -171,7 +171,7 @@ ui <- fluidPage(
         tabPanel("Plot", htmlOutput("distRes"), plotOutput("plotgraph"), tableOutput("contents")),
         #tabPanel("Table", tableOutput("probs")),
         tabPanel("Report", h3(htmlOutput("Report")), tableOutput("summary_participants_properties"),
-                 tableOutput("summary_comparison")))
+                 tableOutput("summary_comparisons")))
       
     )
   )
@@ -357,7 +357,8 @@ server <- function(input, output, session) {
                 prevalence_df=prevalence_df, n = input$n,
                 nb_secondary_infections = nb_secondary_infections,
                 nb_secondary_deaths=nb_secondary_deaths,
-                nb_secondary_hospitalizations=nb_secondary_hospitalizations, df=df))
+                nb_secondary_hospitalizations=nb_secondary_hospitalizations, 
+                df=df))
   })
   
   output$contents <- renderTable({
@@ -460,13 +461,15 @@ server <- function(input, output, session) {
     x =  dataInput()
      #### Renders table with summary statistics for the participants (age and gender, nb of people in household)
     df = data.frame(rbind(
-      c(paste0(nrow(x["df"]), ' participants'), paste0(100 *mean(unlist(x["df"]["Sex"]) == "Male"), " % Male"), paste0(100 *mean(unlist(x["df"]["Sex"]) == "Female"), " % Female")),
-      c(mean(unlist(x["df"]["Age"])), quantile(unlist(x["df"]["Age"]), 0.025), quantile(unlist(x["df"]["Age"]),0.975)),
-      c(mean(unlist(x["df"]["nb_people_hh"])), quantile(unlist(x["df"]["nb_people_hh"]), 0.025),
-        quantile(unlist(x["df"]["nb_people_hh"]), 0.975))
+      c(paste0(nrow(input$n), ' participants'), paste0(100 *mean(unlist(x$df["Sex"]) == "Male"), " % Male"), 
+        paste0(100 *mean(unlist(x$df["Sex"]) == "Female"), " % Female")),
+      c(mean(unlist(x$df["Age"])), quantile(unlist(x$df["Age"]), 0.025), quantile(unlist(x$df["Age"]),0.975)),
+      c(mean(unlist(x$df["nb_people_hh"])), quantile(unlist(x$df["nb_people_hh"]), 0.025),
+        quantile(unlist(x$df["nb_people_hh"]), 0.975))
     ))
     colnames(df) <- c("Mean", "2.5th Quantile", "97.5th Quantile")
     row.names(df) <- c("General", "Age", "Nb of people in household")
+    print(df)
   })
   
   output$summary_comparisons <-renderTable({
@@ -484,6 +487,7 @@ server <- function(input, output, session) {
     row.names(df) <- c("Event: Infections", "Baseline: Infections",
                       "Event: Hospitalizations", "Baseline: Hospitalizations", 
                       "Event: Deaths", "Baseline: Deaths")
+    print(df)
   })
   
   
@@ -503,6 +507,8 @@ server <- function(input, output, session) {
   
   comparison_with_H0_text<-reactive({
     dat =  dataInput()
+
+
     #### Renders comparison with H0 (text ---- this is an important comparison, so it perhaps deserves more explanations than the rest).
     i = round(mean(dat$nb_infections),2)
     ii =round( 0.5 * (quantile(x = dat$nb_infections, 0.975) - quantile(x = dat$nb_infections, 0.025)),2)
@@ -521,6 +527,7 @@ server <- function(input, output, session) {
     b=  round(j/y,4)
     d = round(ii/ xx,4)
     p = paste0("The event is projected to yield a total of ", i, " new infections (+/-", ii , "), ", j, " hospitalizations (+/-", jj , "), and ", k, " deaths (+/-", kk , ").  \n")
+    #print(p)
     if (input$date_event > Sys.Date()){
       p = paste0(p, "By comparison, if the event were not to take place, based on the projected prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
       y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths \n. As such, the average effect of the event would be an increase of ",
@@ -530,12 +537,13 @@ server <- function(input, output, session) {
       " % new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
     }else{
       p = paste0(p, "By comparison, if the event had not taken place, based on the observed prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
-                   y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths \n. As such, the average effect of the event is ",
+                   y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths. \n As such, the average effect of the event is ",
                    ifelse(a>1, "an increase of ", "a decrease of "),
                    abs(a-1)*100, " new infections among participants (", ifelse(d>1, "an increase of ", "a decrease of "),
                    abs(d-1)*100, " in the 95th quantile), and ", ifelse(b>1, "an increase of ", "a decrease of "), abs(b -1)*100,
                    " new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
     }
+    #print(p)
   })
   
   
@@ -545,8 +553,8 @@ server <- function(input, output, session) {
     ###          (2) Comparison with the risk of having car accidents
     ###          (3) Other diseases to compare the fatality with
     gsub(pattern = "\\n", replacement = "<br/>" ,paste0('<p style="font-family:verdana;font-size:14px">',
-                                                        toString(comparison_with_H0_text()$Response),
-                                                        toString(comparison_with_other_diseases()$Response),  
+                                                        toString(comparison_with_H0_text()),
+                                                        toString(comparison_with_other_diseases()),  
                                                         "</p>"))
     
   })
