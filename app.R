@@ -9,7 +9,15 @@ source("helper_functions.R")
 source("aerosol_functions.R")
 source("covid_case_predictions.R")
 
-countries = read.csv("population_by_country_2020.csv")
+countries = read.csv("countries_names.csv")
+countries_list = list()
+for (c in unique(countries$country_name)){
+  if (sum(countries$country_name == c ) >1 ){
+    countries_list[[c]]= as.list(sapply(countries$region[countries$country_name == c], function(x){toString(x)}))
+  }else{
+    countries_list[[c]]= list(c("Main territory"))
+  }
+}
 
 BREATHING_RATE = 0.012 * 60 
 DEPOSITION = 0.24
@@ -38,13 +46,18 @@ ui <- fluidPage(
       # Input: Slider for the number of bins ----
       selectInput(inputId = "country",
                   label = "Which country do you live in?",
-                  choices = countries$Country,
+                  choices = unique(countries$country_name),
                   selected = "Estonia"),
+      selectInput(inputId = "region",
+                  label = "Which region do you live in?",
+                  choices = countries_list,
+                  selected="Main territory"),
+      uiOutput("region"),
       dateInput(inputId = "date_event",
                 label ="When will the event occur?", 
-                value ="2020-11-15",
-                min = NULL,
-                max = "2020-11-29",
+                value =as.character(Sys.Date()),
+                min = "2020-03-01",
+                max = "2021-03-01",
                 format = "yyyy-mm-dd",
                 startview = "month",
                 weekstart = 0,
@@ -169,6 +182,21 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram ----
 server <- function(input, output, session) {
+  observe({
+    x <- input$country
+    
+    # Can use character(0) to remove all choices
+    if (is.null(x))
+      x <- character(0)
+    
+    # Can also set the label and select items
+    country_regions = dplyr::filter(countries, country_name == input$country)
+    updateSelectInput(session, "region",
+                      label = "What region do you live in?",
+                      choices =  country_regions$region,
+                      selected = "Main territory"
+    )
+  })
 
   dataInput <- reactive({
     
@@ -193,7 +221,8 @@ server <- function(input, output, session) {
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    prevalence_df <- compute_prevalence(min(as.Date(input$date_event), Sys.Date()),input$country)
+    print(c("im here", input$country))
+    prevalence_df = compute_prevalence(min(as.Date(input$date_event), Sys.Date()),input$country)
     #prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
     PREVALENCE = filtered_prevalence_df$Infection_prevalence
