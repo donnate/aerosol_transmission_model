@@ -24,8 +24,8 @@ DEPOSITION = 0.24
 MASK_EFFICIENCY = 0.5  ### 50% is the recommended value
 MASK_INHALATION_EFFICIENCY = 0.3
 PRESSURE = 0.95
-RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
-SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
+RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01) # Relative infectiousness by days since infection 
+SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625) # Relative PCR test sensitivity by days since infection
 HOUSEHOLD_TRANSMISSION = 0.5
 
 TAU = 0.06/4
@@ -108,7 +108,7 @@ ui <- fluidPage(
       # Horizontal line ----
       tags$hr(),
       selectInput(inputId = "ventilation",
-                  label = "Which category will be the ventilation at the event be like?",
+                  label = "Which category will the ventilation at the event be like?",
                   choices = read_csv("ventilation_parameters.csv")$category,
                   selected = "Daycare",
                   multiple=FALSE),
@@ -118,7 +118,7 @@ ui <- fluidPage(
                               "HEPA filter"= 440),
                   selected = 0), inline=TRUE,
       numericInput(inputId = "n",
-                   label = "Total of people present",
+                   label = "Total number of people present",
                    value = 1000,
                    min=1),
       numericInput(inputId = "time2event",
@@ -132,18 +132,18 @@ ui <- fluidPage(
                    selected = "Standing:Loudly speaking",
                    multiple=TRUE),
       radioButtons(inputId = "mask",
-                   label="Will the participants be required to wear any mask",
+                   label="Will the participants be required to wear a mask",
                    choices = c("no" = 0,
                                "yes" = 1),
                    selected = 0,
                    inline = TRUE),
       numericInput(inputId = "prop_mask",
-                   label="What proportion (%) of the participants do you expect to wear any mask?",
+                   label="What proportion (%) of the participants do you expect to wear a mask?",
                    value=0,
                    min=0,
                    max=100),
       radioButtons(inputId = "mixing",
-                   label="Are the people going to be mixing in that event?",
+                   label="Are the people going to be mixing at the event?",
                    choices = c("no" = 0,
                                "yes" = 1),
                    selected = 0,
@@ -155,6 +155,8 @@ ui <- fluidPage(
                 accept = c("text/csv",
                            "text/comma-separated-values,text/plain",
                            ".csv")),
+      
+      #submitButton(text = "Calculate infections", icon("refresh"), width = NULL),
       
       # Horizontal line ----
       tags$hr(),
@@ -221,7 +223,7 @@ server <- function(input, output, session) {
     
     ####### Enrich the dataset by computing the prevalence of the virus up
     ####### to 14 days before the event
-    print(c("im here", input$country))
+    print(c("i'm here", input$country))
     prevalence_df = compute_prevalence(min(as.Date(input$date_event), Sys.Date()),input$country)
     #prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
     filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)

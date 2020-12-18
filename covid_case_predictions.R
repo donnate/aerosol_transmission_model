@@ -73,7 +73,7 @@ compute_prevalence <- function(event_date, country, nb_curves=20){
     diff_vec = reshape2::melt(as_tibble(Differences_matrix), id.vars=c("date"))
                 
     
-    # Find and select the end time points of the closes case curves
+    # Find and select the end time points of the closest case curves
     closest_case_curves <- which.minn(diff_vec$value,NB_OF_CASE_CURVES)  # decreasing = FALSE, index.return=TRUE)$ix[1:NB_OF_CASE_CURVES]
     diff_vec2 = diff_vec[closest_case_curves, ]
     
