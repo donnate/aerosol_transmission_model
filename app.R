@@ -275,7 +275,7 @@ server <- function(input, output, session) {
     df["p_death"] = adverse_outcome[2,]
     
     ##########################################
-    B = 5000
+    B = 1000
     nb_infective_people = rep(0,B)
     nb_infections = rep(0,B)
     nb_secondary_infections = rep(0,B)
@@ -287,6 +287,7 @@ server <- function(input, output, session) {
     Baseline_infections_on_event_day <- rep(0, B)
     Baseline_hosp_on_event_day <- rep(0, B)
     Baseline_deaths_on_event_day <- rep(0, B)
+    
     #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
     withProgress(message = paste0('Running ', B, ' simulations'), value = 0, {
     for (b in 1:B){
@@ -395,7 +396,7 @@ server <- function(input, output, session) {
   output$disclaimer = renderUI({
     tags$div(
       tags$p("This calculator uses the predicted number of infections in a country, the characteristics of the event, the participants and the screening protocol to estimate the number of infections, hospitalisations and deaths that are likely to result from holding the event"), 
-      tags$p("This risk estimator is not exact!!! It should not be understood as exact, but rather, to understand order of magnitude for the risk."), 
+      tags$p("This risk estimator is not exact!!! It should not be understood as exact, but rather, to understand the order of magnitude for the risk."), 
       tags$p("We do not save any of the information you input or upload"),
       tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see our predictions")
     )
@@ -421,18 +422,28 @@ server <- function(input, output, session) {
         geom_line()+
         geom_errorbar(aes(ymin=10^6*(Infection_prevalence-sd_Infection_prevalence),
                           ymax=10^6*(Infection_prevalence+sd_Infection_prevalence)))+
-        theme_classic()+
+        theme_bw()+
         scale_y_continuous(limits=c(0,NA), labels = scales::comma)+
         labs(title = "Projected Prevalence", x="Time (Days)", y="COVID cases per million")
 
     pt2 <-  ggplot(data.frame(N=x$Baseline_infections_on_event_day))+
       geom_histogram(aes(N,y = (..count..)/sum(..count..)))+
-      theme_classic() +
+      theme_bw() +
       labs(title="Distribution of the number of infections \n (baseline, no event)",
            x ="Number of cases", y = "Probability")
       
     
-    pt3 <- ggplot(data.frame(N=x$nb_infections))+
+    pt3 <- data.frame(Baseline_infections_on_event_day=x$Baseline_infections_on_event_day,
+                      nb_infections=x$nb_infections) %>% 
+      pivot_longer(cols=c("Baseline_infections_on_event_day", "nb_infections"), names_to="variable", values_to="value") %>% 
+      ggplot(aes(x=value, fill=variable))+
+      geom_histogram(aes(x=value,y = (..count..)/sum(..count..)), alpha=0.5, position="identity")+
+      scale_fill_manual(labels = c("Without \n event", "With \n event"), values = c("blue", "red"))+
+      theme_bw() + 
+      labs(title="Distribution of the number of (primary) infections \n (with and without event)",
+           x ="Number of cases", y = "Probability")
+    
+    pt3_alt <- ggplot(data.frame(N=x$nb_infections))+
       geom_histogram(aes(x=N,y = (..count..)/sum(..count..)))+
       theme_classic() + 
       labs(title="Distribution of the number of (primary) infections \n (with event)",
@@ -440,7 +451,7 @@ server <- function(input, output, session) {
     
     pt4 <- ggplot(data.frame(N=x$nb_infections + x$nb_secondary_infections))+
       geom_histogram(aes(x=N,y = (..count..)/sum(..count..)))+
-      theme_classic() + 
+      theme_bw() + 
       labs(title="Distribution of the number of total infections \n (primary and secondary, with event)",
            x ="Number of cases", y = "Probability")
     
