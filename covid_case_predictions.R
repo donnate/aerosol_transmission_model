@@ -28,7 +28,15 @@ compute_prevalence <- function(event_date, country, nb_curves=20){
     
     
   # Convert date to numeric
-  COUNTRY_DATA <- read.csv(file="https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv", header=T, sep=",")
+  COUNTRY_DATA<-read.csv("owid-covid-data.csv", header=T)
+  if(max(as.numeric(as.Date(COUNTRY_DATA$date, "%Y-%m-%d"))) < as.numeric(Sys.Date())-1){
+    COUNTRY_DATA=read.csv(file="https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv", header=T, sep=",")
+  } else {
+    COUNTRY_DATA=COUNTRY_DATA
+  }
+  write.csv(x=COUNTRY_DATA, file = "owid-covid-data.csv", row.names=FALSE)
+  
+  #COUNTRY_DATA <- read.csv(file="https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv", header=T, sep=",")
   COUNTRY_DATA$date <- as.numeric(as.Date(COUNTRY_DATA$date, "%Y-%m-%d"))
   # Select the smoothed new cases per million in your country of interest
   
