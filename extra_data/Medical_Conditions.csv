@@ -1,0 +1,20 @@
+Selected Underlying Medical Conditions of COVID-19-associated Hospitalizations from the COVID-NET Network (data downloaded on 11/11/2020)Centers for Disease Control and Prevention
+YEAR,MEDICAL CONDITION,CHILDREN-COUNT,CHILDREN-PERCENT(%),ADULTS-COUNT,ADULTS-PERCENT(%),FEMALES (15-44 YR)-COUNT,FEMALES (15-44 YR)-PERCENT(%)
+2020,Asthma,35,13.3,N/A,10.7,N/A,N/A
+2020,Cardiovascular disease,8,3.0,N/A,34.2,N/A,N/A
+2020,Chronic lung disease,17,6.4,N/A,19.4,N/A,N/A
+2020,Immune suppression,14,5.3,N/A,8.9,N/A,N/A
+2020,Metabolic disease,14,5.3,N/A,42.9,N/A,N/A
+2020,Neurologic disease,34,12.9,N/A,24.5,N/A,N/A
+2020,Other disease,50,18.9,N/A,9.9,N/A,N/A
+2020,No known condition,130,49.2,N/A,9.4,N/A,N/A
+2020,Autoimmune disease ,1,0.4,N/A,2.9,N/A,N/A
+2020,Obesity,52,43.7,N/A,46.6,N/A,N/A
+2020,Pregnancy,N/A,N/A,N/A,N/A,N/A,22.6
+2020,Renal disease,N/A,N/A,N/A,16.1,N/A,N/A
+2020,Gastrointestinal/liver disease,3,1.1,N/A,4.6,N/A,N/A
+2020,Hypertension,5,1.9,N/A,59.1,N/A,N/A
+
+"1. COVID-NET hospitalization data are preliminary and subject to change as more data become available. In particular, case counts and rates for recent hospital admissions are subject to delay. As data are received each week, prior case counts and rates are updated accordingly."
+"2. Data on age, sex, race and ethnicity, admission date, in-hospital death and SARS-CoV-2-testing were collected for all cases."
+"3. Data are restricted to cases reported during March 1–May 31, 2020, due to delays in reporting. During this time frame, sampling was conducted among hospitalized adults aged >= 18 years; therefore, counts are not shown, and weighted percentages are reported. The denominator for percentages for underlying medical conditions among adults includes sampled cases with data on these conditions. No sampling was conducted among hospitalized children; therefore, the denominator for percentages of underlying medical conditions among children includes all pediatric cases with data on these conditions. Underlying medical conditions among pregnant women are included when "Adults" and/or "Pediatrics" is selected."

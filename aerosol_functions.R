@@ -15,8 +15,7 @@ compute_quanta_concentation <- function(quanta_emission_rate,
                                         duration, nb_infective_people){
   ### This function computes the quanta emission rate (per hour) given room parameters
   return(quanta_emission_rate/first_order_loss_rate/volume * 
-         (1 - 1/first_order_loss_rate / duration)* (1 -exp(- first_order_loss_rate * duration)) * 
-           nb_infective_people)
+         (1 - 1/first_order_loss_rate / duration * (1 -exp(- first_order_loss_rate * duration))))
 }
 
 compute_quanta_inhaled_per_person <- function(quanta_concentration,  breathing_rate,

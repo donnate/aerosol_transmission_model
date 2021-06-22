@@ -5,9 +5,9 @@ account: homecovidtests
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 3240246
-bundleId: 3865889
+bundleId: 4600123
 url: https://homecovidtests.shinyapps.io/aerosol_transmission_model/
-when: 1605514601.1315
+when: 1621036947.97648
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: Characteristics.csv|covid_case_predictions.R|Inhalation rate.csv|main_individual.R|Medical_Conditions.csv|mock_data.csv|README.md|united_states_covid19_cases_and_deaths_by_state.csv
+ignoredFiles: .RData|README.md|archive|code_experiments_paper|extra_data|plots

@@ -1,0 +1,13 @@
+name: risk_model_organizers
+title: risk_model_organizers
+username:
+account: homecovidtests
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3877688
+bundleId: 4406516
+url: https://homecovidtests.shinyapps.io/risk_model_organizers/
+when: 1617002231.93592
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: aerosol_functions_space.R|app_uk_draft.R|app_UK.R|app.R|CI_bandwidths.pdf|ci.png|CI2.pdf|coverage.pdf|prediction_UK_november.pdf|UK_november.pdf|UnitedStates_december.pdf|US_december.pdf|data_transmission/outdoor1.png|data_transmission/outdoor2.png|data_transmission/outdoor3.png|data_transmission/outdoor4.png|plots/decay_20celsius.png|plots/decay_rh40.png|plots/decay_temp_20.png

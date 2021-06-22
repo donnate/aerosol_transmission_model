@@ -1,0 +1,19 @@
+﻿Age Group,Risk,Type,Effect
+0-4 years,4,hospitalization,lower
+5-17 years,9,hospitalization,lower
+18-29 years,0,hospitalization,Comparison Group
+30-39 years,2,hospitalization,higher
+40-49 years,3,hospitalization,higher
+50-64 years,4,hospitalization,higher
+65-74 years,5,hospitalization,higher
+75-84 years,8,hospitalization,higher
+85+ years,13,hospitalization,higher
+0-4 years,9,death,lower
+5-17 years,16,death,lower
+18-29 years,0,death,Comparison Group
+30-39 years,4,death,higher
+40-49 years,10,death,higher
+50-64 years,30,death,higher
+65-74 years,90,death,higher
+75-84 years,220,death,higher
+85+ years,630,death,higher

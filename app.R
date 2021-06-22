@@ -3,39 +3,58 @@ library("shiny")
 library("tidyverse")
 library(gridExtra)
 library(lme4)
-source("proba_adverse_outcome.R")
-source("individual_probabilities.R")
+library(locfit)
+library(data.table)
+library(reshape2)
+library(tibbletime)
+library(EnvStats)
+
+
 source("helper_functions.R")
+source("vaccination.R")
 source("aerosol_functions.R")
+source("beta_params.R")
 source("covid_case_predictions.R")
+source("under_ascertainment_bias.R")
+source("screening_efficiency.R")
+source("relative_infectiousness.R")
+#setwd("~/Dropbox/aerosol_transmission_model/")
 
-countries = read.csv("countries_names.csv")
-countries_list = list()
-for (c in unique(countries$country_name)){
-  if (sum(countries$country_name == c ) >1 ){
-    countries_list[[c]]= as.list(sapply(countries$region[countries$country_name == c], function(x){toString(x)}))
-  }else{
-    countries_list[[c]]= list(c("Main territory"))
-  }
-}
 
-BREATHING_RATE = 0.012 * 60 
+url <- "https://twitter.com/intent/tweet?text=Event%20Risk%20Estimation%20Tool&url=https://homecovidtests.shinyapps.io/CERTIFIC_risk/"
+url_fb <- "http://www.facebook.com/share.php?u=https://homecovidtests.shinyapps.io/CERTIFIC_risk/&quote=Event%20Risk%20Estimation%20Tool"
+share <- list(
+  title = "Event Risk Estimation Tool for the Management of Live Events",
+  url = "http://www.facebook.com/share.php?u=https://homecovidtests.shinyapps.io/CERTIFIC_risk/",
+  description = "Given the parameters for an event, display the associated transmission risk. For reference and information purpose. Not for medical use."
+)
+
+###### START BY DEFINING GLOBAL PARAMETERS
+B = 1000  ### Nb of simulations we want to run
+BREATHING_RATE = 0.012 * 60    
 DEPOSITION = 0.24
-MASK_EFFICIENCY = 0.5  ### 50% is the recommended value
-MASK_INHALATION_EFFICIENCY = 0.3
+MASK_EFFICIENCY = 0.8  ### 50% is the recommended value
+MASK_INHALATION_EFFICIENCY = 0.5
 PRESSURE = 0.95
-RELATIVE_INFECTIOUSNESS = c(0, 0.01,0.05,0.2,0.6,0.88,0.98,1,1,1,0.95,0.8,0.4,0.2,0.1,0.01)
-SENSITIVITY = c(0,0,0.019,0.0327,0.560,0.653,0.718,0.746,0.737,0.718,0.7,0.68,0.662,0.644,0.625)
-HOUSEHOLD_TRANSMISSION = 0.5
+#### GLOBAL FUNCTIONS
+rolling_mean <- rollify(mean, window = 7)
 
-TAU = 0.06/4
-MU = 5
-SD = 2
+#### CASES AND VACCINATION DATA
+COUNTRY_DATA <- read.csv(file="https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv", header=T, sep=",")
+COUNTRY_DATA$date <- (as.Date(COUNTRY_DATA$date, "%Y-%m-%d"))
+ifr_data=read.csv("country_ifr_data.csv", header=T)
+
+COUNTRY_LIST =  intersect(unique(COUNTRY_DATA$location),ifr_data$location)
+
+
+##### COMPUTE UNDER-ASCERTAINMENT BIAS
+
+
 
 ui <- fluidPage(
   
   # App title ----
-  titlePanel("What are the parameters for your event?"),
+  titlePanel("What are the parameters for the event?"),
   
   # Sidebar layout with input and output definitions ----
   sidebarLayout(
@@ -45,19 +64,18 @@ ui <- fluidPage(
       
       # Input: Slider for the number of bins ----
       selectInput(inputId = "country",
-                  label = "Which country do you live in?",
-                  choices = unique(countries$country_name),
-                  selected = "Estonia"),
-      selectInput(inputId = "region",
-                  label = "Which region do you live in?",
-                  choices = countries_list,
-                  selected="Main territory"),
-      uiOutput("region"),
+                  label = "Which country will the event be in",
+                  choices = COUNTRY_LIST,
+                  selected = "United Kingdom"),
+      numericInput(inputId = "n_people",
+                   label = "Total number of people present at the event",
+                   value = 1000,
+                   min=0),
       dateInput(inputId = "date_event",
                 label ="When will the event occur?", 
-                value =as.character(Sys.Date()),
+                value =as.character(Sys.Date()+14),
                 min = "2020-03-01",
-                max = "2021-03-01",
+                max = as.character(Sys.Date() + 60),
                 format = "yyyy-mm-dd",
                 startview = "month",
                 weekstart = 0,
@@ -71,6 +89,16 @@ ui <- fluidPage(
                    label = "Duration of the event (in minutes) ",
                    value = 90,
                    min=0),
+      numericInput(inputId = "p_lie",
+                   label = "Probability of lying: pretending to feel fine even with symptoms",
+                   value = 0.5,
+                   min=0,
+                   max=1),
+      numericInput(inputId = "prop_mask",
+                   label="What proportion (%) of the participants do you expect to wear any mask?",
+                   value=100,
+                   min=0,
+                   max=100),
       # Horizontal line ----
       tags$hr(),
       radioButtons(inputId = "unit",
@@ -94,7 +122,8 @@ ui <- fluidPage(
       numericInput(inputId = "temperature",
                    label = "Temperature (in Celsius)",
                    value = 20,
-                   min=0),
+                   min=10,
+                   max=30),
       numericInput(inputId = "RH",
                    label = "Relative Humidity (from 20 to 70%)",
                    value = 60,
@@ -108,283 +137,368 @@ ui <- fluidPage(
       # Horizontal line ----
       tags$hr(),
       selectInput(inputId = "ventilation",
-                  label = "Which category will be the ventilation at the event be like?",
+                  label = "Which category will the ventilation at the event be like?",
                   choices = read_csv("ventilation_parameters.csv")$category,
-                  selected = "Daycare",
+                  selected = "Music/Theater/Dance",
                   multiple=FALSE),
       radioButtons(inputId = "control",
                   label = "Additional control measures?",
                   choices = c("None"= 0,
                               "HEPA filter"= 440),
                   selected = 0), inline=TRUE,
-      numericInput(inputId = "n",
-                   label = "Total of people present",
-                   value = 1000,
-                   min=1),
       numericInput(inputId = "time2event",
                    label = "Number of days between Antigen Testing and Event",
-                   value = 0,
+                   value = 2,
                    min=0,
                    max=10),
       selectInput(inputId = "activity",
-                   label="What activity will the participants be performing?",
-                   choices = read_csv("quanta_emission_rates.csv")$Activity,
-                   selected = "Standing:Loudly speaking",
-                   multiple=TRUE),
-      radioButtons(inputId = "mask",
-                   label="Will the participants be required to wear any mask",
-                   choices = c("no" = 0,
-                               "yes" = 1),
-                   selected = 0,
-                   inline = TRUE),
-      numericInput(inputId = "prop_mask",
-                   label="What proportion (%) of the participants do you expect to wear any mask?",
-                   value=0,
-                   min=0,
-                   max=100),
-      radioButtons(inputId = "mixing",
-                   label="Are the people going to be mixing in that event?",
-                   choices = c("no" = 0,
-                               "yes" = 1),
-                   selected = 0,
-                   inline = TRUE),
-  
-      # Input: Select a file ----
-      fileInput("file1", "Upload participants' information (choose CSV File)",
-                multiple = FALSE,
-                accept = c("text/csv",
-                           "text/comma-separated-values,text/plain",
-                           ".csv")),
-      
+                  label="What activity will the participants be performing?",
+                  choices = read_csv("quanta_emission_rates.csv")$Activity,
+                  selected = "Standing:Loudly speaking",
+                  multiple=TRUE),
+      # Horizontal line ----
       # Horizontal line ----
       tags$hr(),
-    
-      
+      # Create url with the 'twitter-share-button' class
+      tags$a(href=url, "Tweet", class="twitter-share-button"),
+      # Copy the script from https://dev.twitter.com/web/javascript/loading into your app
+      # You can source it from the URL below. It must go after you've created your link
+      includeScript("http://platform.twitter.com/widgets.js"),
+      #submitButton("Calculate", icon("refresh")),
+      tags$a(href=url_fb, "Share on Facebook", class="fb-share-button")
     ),
     
     # Main panel for displaying outputs ----
     mainPanel(
-      
       # Output: Histogram ----
       tabsetPanel(
         tabPanel("Disclaimer", htmlOutput("disclaimer")),
-        tabPanel("Plot", htmlOutput("distRes"), plotOutput("plotgraph"), tableOutput("contents")),
-        #tabPanel("Table", tableOutput("probs")),
-        tabPanel("Report", h3(htmlOutput("Report")), tableOutput("summary_participants_properties"),
-                 tableOutput("summary_comparisons")))
-      
-    )
+        tabPanel("Results", plotOutput("plotinput",  width = 800, height = 1000),tableOutput("contents"))
+       )
+      )
   )
-    
   
 )
 
 
+
 # Define server logic required to draw a histogram ----
 server <- function(input, output, session) {
-  observe({
-    x <- input$country
-    
-    # Can use character(0) to remove all choices
-    if (is.null(x))
-      x <- character(0)
-    
-    # Can also set the label and select items
-    country_regions = dplyr::filter(countries, country_name == input$country)
-    updateSelectInput(session, "region",
-                      label = "What region do you live in?",
-                      choices =  country_regions$region,
-                      selected = "Main territory"
-    )
-  })
-
   dataInput <- reactive({
     
     
-    #### Step 1: load the participants data + location data. In the absence of data, assume homogeneity.
-    ####### Step 1.a: Load participants
-    if (is.null(input$file1$datapath) == FALSE){
-      df <- read.csv(input$file1$datapath,
-                     header = TRUE,
-                     sep = ",")
-    }else{
-      df <- data.frame(matrix(0,nrow=input$n, ncol=15))
-      names(df) <- c("Age", "Sex", "Pregnant", "Chronic_Renal_Insufficiency" , "Diabetes",
-                     "Immunosuppression", "COPD", "Obesity", "Hypertension", "Tobacco", "Cardiovascular_Disease",
-                     "Asthma", "profession", "high_risk_contact","nb_people_hh")
-    }
-    DECAY = max(0, (7.56923714795655 + 
-            1.41125518824508 * (input$temperature-20.54)/10.66 +
-            0.02175703466389*(input$RH-45.235)/28.665 + 
-            7.55272292970083*((input$UV*0.185)-50) / 50 +
-            (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.3973422174602) *60)  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+    bias<- compute_underascertainment_bias(min(as.Date(as.character(input$date_event)),  Sys.Date()) - (21+14),
+                                           input$country, COUNTRY_DATA, 
+                                           Case_to_death_delay= 21, 
+                                           date_max=min(as.Date(as.character(input$date_event)) +14, Sys.Date()),
+                                           plot=FALSE)
     
-    ####### Enrich the dataset by computing the prevalence of the virus up
-    ####### to 14 days before the event
-    print(c("im here", input$country))
-    prevalence_df = compute_prevalence(min(as.Date(input$date_event), Sys.Date()),input$country)
-    #prevalence_df =  read_csv("prevalence_", input$country, "_data.csv")  #rep(0.005,  length(SENSITIVITY)) #extract_prevalence()
-    filtered_prevalence_df = filter(prevalence_df, Date_of_infection<=as.Date(input$date_event) & Date_of_infection>=as.Date(input$date_event)-14)
-    PREVALENCE = filtered_prevalence_df$Infection_prevalence
-    filtered_prevalence_df2 = filter(prevalence_df, Date_of_infection==as.Date(input$date_event))
+    bias_corr  = mean(bias$value)
+    bias_corr = ifelse(is.na(bias_corr), 1, bias_corr )
+    bias_sd  = sd(bias$value)
+    
+    
+
+    ##### A BUNCH OF PRELIMINARY PARAMETERS
+    MAX_DATE = as.Date(Sys.Date() -1, fmt="%Y-%m-%d")
+    #PERIOD_FOR_PREDICTING = as.numeric(as.Date(input$date_event)- as.Date(max(british_prev$date, na.rm = TRUE), fmt="%Y-%m-%d"))
+    PERIOD_FOR_PREDICTING = max(28, (as.numeric(as.Date(input$date_event)- MAX_DATE-1)))
+    PERIOD_FOR_FITTING = 28
+    infectiousness_all = compute_relative_infectiousness(input, period4predicting = PERIOD_FOR_PREDICTING, plot=FALSE) 
 
 
-    ###### Step 1.b: compute room parameters for aerosolization
-    volume = extract_volume(input$length, input$width, input$height, input$unit)
-    surface = extract_surface(input$length, input$width, input$unit)
-    occupant_density = input$n /surface
-    ventilation <- lookup_ventilation(input$ventilation, input$n, occupant_density, surface, volume)
-    first_order_loss_rate = extract_first_order(ventilation,
-                                                as.numeric(input$control),
-                                                DECAY,
-                                                DEPOSITION)
+    N_TOT = input$n_people
+    DECAY = max(0, (7.57+ 
+                      1.41* (input$temperature-20.54)/10.66 +
+                      0.0218 *(input$RH-45.24)/28.67 + 
+                      7.55 *((input$UV*0.185)-50) / 50 +
+                      (input$temperature-20.54)/10.66*(input$UV*0.185-50)/50*1.40) *60)  #https://www.dhs.gov/science-and-technology/sars-airborne-calculator
+    
   
-    ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
-                                                                      ventilation,
-                                                                      as.numeric(input$control),
-                                                                      input$n)
-    
-    quanta_emission_rate0 <- compute_quanta_emission_rate(input$activity,
-                                                         MASK_EFFICIENCY ,
-                                                         input$prop_mask,
-                                                         1)
-    
-    quanta_concentration0 <- compute_quanta_concentation(quanta_emission_rate0,
-                                                        first_order_loss_rate,
-                                                        volume,  
-                                                        input$duration,
-                                                        1)
-    print(paste0("ventilation_rate_per_person : ",ventilation_rate_per_person ))
     ##########################################
-    #### Step 2: compute probability of being infectious, hospitalized,and dying
-    group_assignment = sapply(0:(length(SENSITIVITY)), function(x){paste0("p",x)})
-    df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})] =  t(sapply(1:nrow(df), function(x){
-      compute_infectiousness_probability(sensitivity = SENSITIVITY,
-                                         prevalence=PREVALENCE,
-                                         df$profession[x],
-                                         df$high_risk_contact[x],
-                                         df$nb_people_hh[x]
-                                         )
-      }))
-    df$p0 = 1 - apply(df[sapply(1:(length(SENSITIVITY)), function(x){paste0("p",x)})],1,sum)
-    #print(df[group_assignment])
-    adverse_outcome <- sapply(df$Age,hospitalization_risk)
-    df["p_hosp"] = adverse_outcome[1,]
-    df["p_death"] = adverse_outcome[2,]
+    ##########################################
+    #### Step 1: COMPUTE NUMBER OF INFECTIOUS AND SUSCEPTIBLE PEOPLE AT THE EVENT
+    ##########################################
+    ##########################################
+    
     
     ##########################################
-    B = 5000
-    nb_infective_people = rep(0,B)
-    nb_infections = rep(0,B)
-    nb_secondary_infections = rep(0,B)
-    p = rep(0,B)
-    nb_hospitalizations = rep(0,B)
-    nb_secondary_hospitalizations = rep(0,B)
-    nb_deaths = rep(0,B)
-    nb_secondary_deaths = rep(0,B)
-    Baseline_infections_on_event_day <- rep(0, B)
-    Baseline_hosp_on_event_day <- rep(0, B)
-    Baseline_deaths_on_event_day <- rep(0, B)
-    #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
-    withProgress(message = paste0('Running ', B, ' simulations'), value = 0, {
-    for (b in 1:B){
-      ####### draw infected people (their infectivity bucket)
-      Z = apply(df[group_assignment], MARGIN = 1, function(x){which(rmultinom(1,1,x)>0)-1})
-      nb_infective_people[b] = sum((Z>0))
-      Z = Z[(Z>0)]  #### keep infected people only
+    ####### 1a. Predict the prevalence using K-NN
+    ##########################################
+    D = 10
+    withProgress(message = 'Computing distribution of the number of infected partipants', value = 0, {
       
-      if (nb_infective_people[b] > 0){
-        ####### Step 3.a Direct contacts
-        contacts  =rnorm(length(Z), mean = MU, sd = SD)
-        contacts[contacts<1]=1
-        #### Attempt at spatial modelling -- perhaps best to keep the two models separate for now as we are developping the tool
-        nb_infections[b] = sum(sapply(1:length(Z),
-                                  function(x){rbinom(1,round(abs(contacts[x])), TAU *  RELATIVE_INFECTIOUSNESS[min(16,Z[x] + input$time2event)])}))
-        
-        ####### Step 3.b Aerosolization
-        #quanta_emission_rate <- quanta_emission_rate0 * nb_infective_people[b]
-        #print(paste0("quanta_emission_rate: ",quanta_emission_rate))
+      incProgress(1/D, detail = "Predicting the prevalence")
+      
+      if(as.Date(input$date_event) >=Sys.Date()+ 2){
+          data2fit = COUNTRY_DATA %>% filter(date >= Sys.Date() - PERIOD_FOR_FITTING , location == input$country) %>% select(new_cases_smoothed_per_million)
+          if (nrow(data2fit) == 0){
+            data2fit = COUNTRY_DATA %>% filter(date >= Sys.Date() - PERIOD_FOR_FITTING , location == "World") %>% select(new_cases_smoothed_per_million)
+          }
+          res_df = compute_prevalence(as.Date(as.character(input$date_event)), data2fit,
+                                        country_data =COUNTRY_DATA, nb_curves=100, 
+                                        distance=Difference_function, 
+                                        period4predicting=PERIOD_FOR_PREDICTING + 1, period4fitting = min(PERIOD_FOR_FITTING, nrow(data2fit)), 
+                                        div=2, distance_type="MSE")
+          prevalence_df = res_df$res
+          samples_prev = res_df$output
+    
+          #### Correct for all of these under-ascertainment issues
+          future_prevalence_df = prevalence_df %>%
+            dplyr::filter(time > 0) %>%
+            mutate(prevalence = 1/bias_corr * prevalence,
+                   sd_prevalence = 1/bias_corr * sd_prevalence)
+      }else{
+        data2fit = COUNTRY_DATA %>% filter(date >= as.Date(as.character(input$date_event)) - PERIOD_FOR_PREDICTING,
+                                           date <= as.Date(as.character(input$date_event)), location == input$country) %>%  select(new_cases_smoothed_per_million)
+        #### Extrapolate if the data is 
+        if (nrow(data2fit) < PERIOD_FOR_PREDICTING +1){
+          data2fit= rbind(data2fit, data.frame("new_cases_smoothed_per_million" = rep(data2fit$new_cases_smoothed_per_million[nrow(data2fit)], PERIOD_FOR_PREDICTING +1 -nrow(data2fit) ) ))
+        }
+        future_prevalence_df  = data.frame("time" = 1:(PERIOD_FOR_PREDICTING + 1),
+                                           "prevalence" =  1/bias_corr * 1e-6 * data2fit$new_cases_smoothed_per_million,
+                                           "sd_prevalence" = rep(0,PERIOD_FOR_PREDICTING+1),
+                                           "Date_of_cases" =seq(from=as.Date(as.character(input$date_event)) - PERIOD_FOR_PREDICTING, to = as.Date(as.character(input$date_event)), by="day"))
+      }
+      
+      future_prevalence_df = future_prevalence_df %>% mutate(ymin = prevalence -2*sd_prevalence,
+                                                   ymax = prevalence +2*sd_prevalence)
+      future_prevalence_df["ymin"] = sapply(future_prevalence_df["ymin"], function(x){ifelse(x<0,0,x)})
+      future_prevalence_df["ymax"] = sapply(future_prevalence_df["ymax"], function(x){ifelse(x>1,1,x)})
+      
+      
 
-        quanta_concentration <- quanta_concentration0 * sum(sapply(1:length(Z), function(x){RELATIVE_INFECTIOUSNESS[min(16,Z[x] + input$time2event)]}))
-        #print(paste0("quanta_concentration: ",quanta_concentration))
-        quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration,
-                                                                       BREATHING_RATE,
-                                                                       input$duration,
-                                                                       MASK_INHALATION_EFFICIENCY,
-                                                                       0.01 * input$prop_mask)
+      
+      
+      ##########################################
+      #### Step 1.b : compute probability of being infectious, and vulnerable
+      ##########################################
+      incProgress(2/D, detail = "Predicting the infectiousness (This might take a while).")
+      group_assignment = c(sapply(1:PERIOD_FOR_PREDICTING, function(x){paste0(x)})) #### STOP one day before the event
+      
+      df = pivot_wider(future_prevalence_df %>% select(time, prevalence), names_from = c("time"), values_from = "prevalence")
+      #proba_null <- future_prevalence_df[PERIOD_FOR_PREDICTING,"prevalence"]
+      nb_people_infected <- sum(N_TOT * df)
+      
+      #### Effect of the test + symptoms screening
+      df_sample = data.frame(matrix(0, B,PERIOD_FOR_PREDICTING))
+      colnames(df_sample) = group_assignment
+      
+      for (i in 1:(PERIOD_FOR_PREDICTING)){
+        ii = PERIOD_FOR_PREDICTING - i
+        ind = which(infectiousness_all$Date.of.Infection == -(PERIOD_FOR_PREDICTING - i))
+        
+        df_sample[as.character(i)]= sapply(1:B, function(b){
+          min(1,max(0,ifelse(future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)] >0, rnorm(1, future_prevalence_df$prevalence[which(future_prevalence_df$time == i)], future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)]),
+                             future_prevalence_df$prevalence[which(future_prevalence_df$time == i)] )))* max(min(1, 0.01* ifelse( (infectiousness_all$infectiousness_event_sd[ind] > 0),
+                                                                                                                                rnorm(1, infectiousness_all$infectiousness_event[ind], infectiousness_all$infectiousness_event_sd[ind]),
+                                                                                                                                infectiousness_all$infectiousness_event[ind])),0)
+        
+                    })
+      }
+      
+      
+      
+      nb_people_infectious_at_the_event <- mean(N_TOT* apply(df_sample[group_assignment ],1, sum))
+      nb_infective_people <- sapply(1:B, function(b){rbinom(1,N_TOT, sum(df_sample[b,group_assignment ]))})
+      nb_people_detected <- nb_people_infected - nb_people_infectious_at_the_event 
+
+      
+      incProgress(3/D, detail = "Computing the number of Susceptible participants ")
+      
+      if (as.Date(input$date_event) > as.Date("2021-02-15")){
+        p_immunity = immunity(input$country, as.Date(input$date_event), ifelse(as.Date(input$date_event)<=Sys.Date(), as.Date(input$date_event), Sys.Date()-1), VACCINATIONS, ODDS_RATIO_VACCINE_DOSE1, ODDS_RATIO_VACCINE_DOSE2, plot=FALSE)
+        p_immunity_worst = immunity(input$country, as.Date(input$date_event), ifelse(as.Date(input$date_event)<=Sys.Date(), as.Date(input$date_event), Sys.Date()-1), VACCINATIONS, ODDS_RATIO_VACCINE_DOSE1_WORST, ODDS_RATIO_VACCINE_DOSE2_WORST, plot=FALSE)
+        p_immunity_best = immunity(input$country, as.Date(input$date_event), ifelse(as.Date(input$date_event)<=Sys.Date(), as.Date(input$date_event), Sys.Date()-1), VACCINATIONS, ODDS_RATIO_VACCINE_DOSE1_BEST, ODDS_RATIO_VACCINE_DOSE2_BEST, plot=FALSE)
+        beta_immunity_params = beta.parms.from.quantiles(c(p_immunity_worst,  p_immunity_best))
+        n_susc  <- (sapply(1:B, function(b){
+        #### ASSUME FIRST DOSE BECOMES FULLY VACCINATED AFTER FOUR WEEKS
+            if(p_immunity<0.5){
+              max(0,N_TOT - rpois(1,sum(rbeta(N_TOT, beta_immunity_params$a, beta_immunity_params$b))))
+            }else{
+              max(0, rpois(1,sum(rbeta(N_TOT, beta_immunity_params$b, beta_immunity_params$a))))
+            }
+            #sum(sapply(1:N_TOT, function(u){rbinom(1, 1,1-rbeta(1, beta_immunity_params$a, beta_immunity_params$b))}))
+          }))
+      }else{
+        n_susc = rep(N_TOT,B)
+      }
+      
+      nb_people_vulnerable_at_the_event <- mean(n_susc)
+      ##########################################
+      ##########################################
+      ###### Step 2: TRANSMISSION DYNAMICS
+      ##########################################
+      ##########################################
+      
+      ##########################################
+      ###### Step 2.a: compute room parameters for aerosolization
+      ##########################################
+      incProgress(3/D, detail = "Computing Room parameters for aerosolization ")
+      volume = extract_volume(input$length, input$width, input$height, input$unit)
+      surface = extract_surface(input$length, input$width, input$unit)
+      occupant_density = N_TOT /surface
+      ventilation <- lookup_ventilation(input$ventilation, N_TOT, occupant_density, surface, volume)
+      first_order_loss_rate = extract_first_order(ventilation,
+                                                  as.numeric(input$control),
+                                                  DECAY,
+                                                  DEPOSITION)
+      
+      ventilation_rate_per_person = extract_ventilation_rate_per_person(volume, 
+                                                                        ventilation,
+                                                                        as.numeric(input$control),
+                                                                        N_TOT)
+      
+      quanta_emission_rate0 <- compute_quanta_emission_rate(input$activity,
+                                                            MASK_EFFICIENCY ,
+                                                            input$prop_mask/100,
+                                                            1)
+      
+      print(paste0("ventilation_rate_per_person : ",ventilation_rate_per_person ))
+      
+      ##########################################
+      #### Step 2.b: MC simulations
+      ##########################################
+      
+     
+
+      ##########################################
+      ##########################################
+      ###### Step 3: RESULTS
+      ##########################################
+      ##########################################
+      
+      #### Step 3: compute probability of infecting people and adverse outcomes using MCMC simulations
+      
+      
+      incProgress(4/D, detail = "Computing infection distribution")
+      nb_infective_people = apply(df_sample, 1, function(x){rbinom(1,N_TOT, sum(x ))})
+      
+      proba_dist_infectiousness <- sapply(1:min(100, N_TOT), function(n){dpois(n,  N_TOT * mean(apply(df_sample,1,sum)) )})
+      proba_infection <- sapply(1:min(100, N_TOT), function(n){
+        
+        q_e = n * as.numeric(quanta_emission_rate0)
+        
+        q_c <- as.numeric(compute_quanta_concentation(q_e, first_order_loss_rate = first_order_loss_rate, 
+                                                      volume =volume,
+                                                      duration =input$duration, 
+                                                      nb_infective_people = n))
+        
+        quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration = q_c,  
+                                                                       breathing_rate = BREATHING_RATE,
+                                                                       duration=input$duration, 
+                                                                       inhalation_mask_efficiency = MASK_INHALATION_EFFICIENCY,
+                                                                       prop_mask = 0.01 * input$prop_mask)
+        #print(c(q_e, q_c,quanta_inhaled_per_person))
         #print(paste0("quanta_inhaled_per_person: ",quanta_inhaled_per_person))
+        ###### Now there is a lot of uncertainty around that parameter
+        ###### We model potential super spreader events by using a pareto distirbution
         
-        p[b] = 1.-exp(-quanta_inhaled_per_person[[1]])
-        #nb_infections[b] =  nb_infections[b] + rbinom(1, input$n - nb_infections[b] - nb_infective_people[b],
-        #                                              p[b])
-        nb_infections[b] =  rbinom(1, input$n - nb_infective_people[b],
-                                                      p[b])
-        little_p = rnorm(n=1, mean=filtered_prevalence_df2$Infection_prevalence,
-                         sd=filtered_prevalence_df2$sd_Infection_prevalence)
-        Baseline_infections_on_event_day[b] <- nb_infective_people[b] + rbinom(1, input$n, max(min(little_p, 1), 0))
-      }
-
+        return(quanta_inhaled_per_person)
+      })
       
+      L  = min(max(which(proba_dist_infectiousness > 1e-15)), N_TOT)
+      
+      
+      n_infections <- sapply(1:B, function(b){
+        t(sapply(1:L, function(n){
+          min(n_susc[b], rpareto(1,n_susc[b] * proba_infection[n] *0.16/1.16, 1.16))
+        }))
+      })
+      
+
+                                      
+      
+      incProgress(5/D, detail = "Computing summaries for the number of people infected")
+      res = data.frame("Average Number of Transmissions" = t(as.matrix(apply(n_infections,1,mean)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+                       "Q97.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.975)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+                       "Q2.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.025)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+                       "Q99 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.99)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+                       "Q1 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.01)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+                       "Q50 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.5)))%*% as.matrix(proba_dist_infectiousness[1:L]))
+      
+ 
     
-    
-    #### Step 4: Compute (by MCMC simulation) the number of people with adverse outcomes and secondary attack rates
-    #for (b in which(is.nan(nb_infections) == FALSE)){
-      ###### Sample from the list
-      if (nb_infections[b] >0){
-           nb_secondary_infections[b] = sum(sapply(sample(df$nb_people_hh, nb_infections[b]),function(x){
-            ifelse(x>0, rbinom(1, x, HOUSEHOLD_TRANSMISSION),0)}))
-           nb_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_infections[b]), function(x){rbinom(1,1,x)}))
-           nb_deaths[b] = sum(sapply(sample(df$p_death, nb_infections[b]), function(x){rbinom(1,1,x)}))
-           if (nb_secondary_infections[b]>0){
-             print("here")
-             nb_secondary_hospitalizations[b] = sum(sapply(sample(df$p_hosp, nb_secondary_infections[b]), function(x){rbinom(1,1,x)}))
-             nb_secondary_deaths[b] = sum(sapply(sample(df$p_death, nb_secondary_infections[b]), function(x){rbinom(1,1,x)}))
-           }
-      }
-      if (Baseline_infections_on_event_day[b] >0){
-        Baseline_hosp_on_event_day[b] = sum(sapply(sample(df$p_hosp, Baseline_infections_on_event_day[b]), function(x){rbinom(1,1,x)}))
-        Baseline_deaths_on_event_day[b] = sum(sapply(sample(df$p_death, Baseline_infections_on_event_day[b]), function(x){rbinom(1,1,x)}))
-      }
-      incProgress(1/B, detail = paste("*"))
-    }
+      ##########################################
+      ##########################################
+      ###### Step 4: COMPARISON WITH BASELINE
+      ##########################################
+      ##########################################
+      incProgress(6/D, detail = "Simulating Infections")   
+      n_simulated_infections  = data.frame("n" = (sapply(1:B, function(b){
+        ifelse(nb_infective_people[b] == 0, 0, min(n_susc[b], round(rpareto(1, (n_susc[b] - nb_infective_people[b]) * proba_infection[nb_infective_people[b]] *0.16/1.16, 1.16))))
+      })), type="Event", date=input$date_event)
+      n_simulated_infections = n_simulated_infections %>% filter( n <= res$Q99.Number.of.Transmissions)
+      
+      incProgress(7/D, detail = "Computing Baseline rates") 
+      
+      prev_day_event =  future_prevalence_df %>% filter(Date_of_cases == input$date_event)
+      proba_baseline <- t(sapply(1:B, function(b){
+        max(0,rnorm(n=1, mean=prev_day_event$prevalence,
+                    sd=prev_day_event$sd_prevalence))
+      }))
+      
+      n_simulated_infections <- rbind(n_simulated_infections,
+      data.frame("n" = (sapply(1:B, function(b){
+        ifelse(nb_infective_people[b] == 0, 0, rbinom(1,n_susc[b],proba_baseline[b]))
+      })), type="No Event", date=input$date_event))
+      
+      
+     
+      
+      quantiles= c(0.99, 0.975, 0.5, 0.025, 0.01)
+      infections_baseline <- data.frame(rbindlist(lapply(1:B, function(b){
+         a = data.frame(t(c(sapply(quantiles, function(x){qbinom(x, n_susc[b],proba_baseline[b])}), proba_baseline[b] *  n_susc[b])))
+         colnames(a)= c("Q99.Number.of.Transmissions","Q97.5.Number.of.Transmissions", "Q50.Number.of.Transmissions", "Q2.5.Number.of.Transmissions" , "Q1.Number.of.Transmissions" , "Average.Number.of.Transmissions")
+         return(a)
+        })))
+      
+      infections_baseline = infections_baseline[colnames(res)]
+      res = rbind(res, apply(infections_baseline , 2, mean))
+      res["Type"] = c("Event", "No Event")
+      
+
     })
-  
     
-    return(list(nb_infections=nb_infections, nb_deaths=nb_deaths, nb_hospitalizations=nb_hospitalizations,
-                Baseline_infections_on_event_day = Baseline_infections_on_event_day,
-                Baseline_hosp_on_event_day = Baseline_hosp_on_event_day,
-                Baseline_deaths_on_event_day = Baseline_deaths_on_event_day,
-                prevalence_df=prevalence_df, n = input$n,
-                nb_secondary_infections = nb_secondary_infections,
-                nb_secondary_deaths=nb_secondary_deaths,
-                nb_secondary_hospitalizations=nb_secondary_hospitalizations, 
-                df=df))
+
+    return(list(res=res,
+                proba_baseline = proba_baseline,
+                summary_baseline = apply(infections_baseline , 2, mean),
+                prevalence_df=future_prevalence_df,
+                infectiousness_all = infectiousness_all,
+                n = input$n_people,
+                n_simulated_infections  =  n_simulated_infections,
+                nb_people_infected = nb_people_infected,
+                nb_people_infectious_at_the_event =nb_people_infectious_at_the_event ,
+                nb_people_detected = nb_people_detected,
+                nb_people_vulnerable_at_the_event=nb_people_vulnerable_at_the_event,
+                country=input$country
+                ))
   })
+  
   
   output$contents <- renderTable({
     
-    # input$file1 will be NULL initially. After the user selects
-    # and uploads a file, head of that data file by default,
-    
-    # or all rows if selected, will be shown.
     x =  dataInput()
     # set up cut-off values 
     breaks <- c(0,2,4,6,8,10,15,20,25,30,40,50,60,70,80,90,100,200, x$n)
     # specify interval/bin labels
     tags_x <- c("[0-2)","[2-4)", "[4-6)", "[6-8)", "[8-10)", "[10-15)", "[15-20)","[16-18)", "[18-20)",
-              "[20-25)","[25-30)", "[30-40)", "[40-50)", "[50-60)", "[60-70)","[70-80)", "[80-90)","[90-100)")
+                "[20-25)","[25-30)", "[30-40)", "[40-50)", "[50-60)", "[60-70)","[70-80)", "[80-90)","[90-100)","[100-)")
     # bucketing values into bins
+    
     df <- data.frame("Setting"= c("Event", "Baseline"))
-    group_tags <- cut(x$nb_infections, 
+    group_tags <- cut(unlist(x$n_simulated_infections%>% filter(type=="Event") %>% select(n)), 
                       breaks=breaks, 
                       include.lowest=TRUE, 
                       right=FALSE)
-    gp2 = cut(x$Baseline_infections_on_event_day, 
+    gp2 = cut(unlist(x$n_simulated_infections%>% filter(type=="No Event") %>% select(n)), 
               breaks=breaks, 
               include.lowest=TRUE, 
               right=FALSE)
     options(digits=7)
-    df <- cbind(df, rbind(summary(group_tags)/length(x$nb_infections) ,summary(gp2)/length(x$nb_infections)))
+    df <- cbind(df, rbind(summary(group_tags)/sum(summary(group_tags)),
+                          summary(gp2)/sum(summary(gp2))))
     return(df)
     
     
@@ -392,179 +506,70 @@ server <- function(input, output, session) {
   
   output$disclaimer = renderUI({
     tags$div(
-      tags$p("This calculator uses the predicted number of infections in a country, the characteristics of the event, the participants and the screening protocol to estimate the number of infections, hospitalisations and deaths that are likely to result from holding the event"), 
-      tags$p("This risk estimator is not exact!!! It should not be understood as exact, but rather, to understand order of magnitude for the risk."), 
-      tags$p("We do not save any of the information you input or upload"),
-      tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'plot' or 'report' tabs at the top of the screen to see our predictions")
-    )
+      tags$p("This prototype calculator estimates the number of infections for an event using information regarding the country where the event occurs, 
+             the characteristics of the event, the participants and the screening protocol. We choose to output here the distribution of probable number of transmissions, because it allows us to capture more information (average expected number of transmissions, worst case scenarios, etc.).
+             In particular, our calculator allows predictions for an event ahead of time, with a screening via antigen D days before the event and a symptom check at entry. This allows us to compute the probability that an infected participant falls through the screening protocol and is actually infectious at the eent (see plot below)."), 
+      tags$img(src = "final_plot_infectiousness.png", height = 300, width =600),
+      tags$p("You can find more information on the algorithms we use to come up with these numbers in our white paper at the following link."), 
+      tags$br(),
+      tags$b("Note: This risk estimator is not exact!!! Because COVID-19's transmission is still ill-understood and characterized, this prototype is based on a number of assumptions and simplifications. It should not be understood as exact, but rather, as an estimate of the risk's magnitude, and as a tool to compare the efficiency of mask wearing and vaccination rates."), 
+      tags$br(),
+      tags$p("To use this calculator, please fill out all of the questions on the left hand side, then click on the 'Result' tab at the top of the screen to see our predictions."),
+      tags$b("We are using simulations to compute the uncertainty around our prediction, so the computations might take a little while."),
+      tags$br(),
+      tags$p("We are a group of researchers around the world, still currently in the process of developing this tool. As a consequence, we are not professional developpers --- so please do forgive any bugs that you might encounter and address your questions and comments to riskmanagement4capacity@gmail.com."),
+      tags$p("We do not save any of the information you input."),
+      tags$br()
+        )
   })
   
-
   
-  pt1 <- reactive({
+  
+  
+  output$plotinput =renderPlot({
     x =  dataInput()
-    ggplot(x$prevalence_df,aes(x=Date_of_infection, y=Infection_prevalence))+
-    geom_point() +
-    geom_line() +
-    geom_errorbar(aes(ymin=Infection_prevalence-sd_Infection_prevalence,ymax=Infection_prevalence+sd_Infection_prevalence))+
-    theme_classic()
-  })
-  
-  
-  output$plotgraph = renderPlot({
-    x =  dataInput()
-    print(x$prevalence_df)
-    pt1 <- ggplot(x$prevalence_df, aes(x=Date_of_infection, y=Infection_prevalence*10^6))+
-        geom_point()+
-        geom_line()+
-        geom_errorbar(aes(ymin=10^6*(Infection_prevalence-sd_Infection_prevalence),
-                          ymax=10^6*(Infection_prevalence+sd_Infection_prevalence)))+
-        theme_classic()+
-        scale_y_continuous(limits=c(0,NA), labels = scales::comma)+
-        labs(title = "Projected Prevalence", x="Time (Days)", y="COVID cases per million")
 
-    pt2 <-  ggplot(data.frame(N=x$Baseline_infections_on_event_day))+
-      geom_histogram(aes(N,y = (..count..)/sum(..count..)))+
-      theme_classic() +
-      labs(title="Distribution of the number of infections \n (baseline, no event)",
-           x ="Number of cases", y = "Probability")
+    pt2 <- ggplot(x$prevalence_df)+
+      geom_line(aes(x=Date_of_cases, y=1e6 * prevalence), colour="red")+
+      geom_ribbon(aes(x=Date_of_cases, ymin=1e6 * ymin, ymax=1e6*ymax), colour="grey", alpha=0.5)+
+      theme_bw()+ xlab("Date") + ylab("Incidence (per Million)")+
+      ggtitle("Predicted Incidence (per Million) Per Region")+scale_y_log10()
+
+
       
     
-    pt3 <- ggplot(data.frame(N=x$nb_infections))+
-      geom_histogram(aes(x=N,y = (..count..)/sum(..count..)))+
-      theme_classic() + 
-      labs(title="Distribution of the number of (primary) infections \n (with event)",
-           x ="Number of cases", y = "Probability")
-    
-    pt4 <- ggplot(data.frame(N=x$nb_infections + x$nb_secondary_infections))+
-      geom_histogram(aes(x=N,y = (..count..)/sum(..count..)))+
-      theme_classic() + 
-      labs(title="Distribution of the number of total infections \n (primary and secondary, with event)",
-           x ="Number of cases", y = "Probability")
-    
-    ptlist <- list(pt1,pt2,pt3, pt4)
-    if (length(ptlist)==0) return(NULL)
-    
-    grid.arrange(pt1,pt2,pt3,pt4,nrow=2)
-  })
+    pt3<-ggplot(x$infectiousness_all, aes(x=`Date.of.Infection`)) +
+      geom_ribbon(aes(x = `Date.of.Infection`, ymin=100 * `p2`, ymax=100 * p97, fill="Escapes Screening"),alpha=0.3)+
+      geom_ribbon(aes(x = `Date.of.Infection`, ymin=`infectiousness_q025`, ymax=infectiousness_q975, fill="Infectious"),alpha=0.3)+
+      geom_ribbon(aes(x = `Date.of.Infection`, ymin=infectiousness_event_low , ymax=infectiousness_event_high, fill="Infectious at the event"),alpha=0.3)+
+      scale_fill_manual(breaks = c("Escapes Screening", "Infectious", "Infectious at the event"), values=c( "gray16", "gray61", "red")) +
+      geom_line(aes(x = `Date.of.Infection`, y=100 * `p` , colour="Escapes Screening"), size=1.2)+theme_bw() +
+      geom_line(aes(x = `Date.of.Infection`, y=infectiousness, colour = "Infectious"), size=1.2)+
+      geom_line(aes(x = `Date.of.Infection`, y=infectiousness * p, colour = "Infectious at the event"), size=1.2)+
+      scale_colour_manual(breaks = c("Escapes Screening","Infectious", "Infectious at the event"),  values=c("black", "gray60","red"))+
+      theme(legend.text=element_text(size=16))+labs(colour="Average Probability", fill="95% CI Range", size=14) + 
+      theme(text = element_text(size=20),
+            axis.text.x = element_text(angle=90, hjust=1)) + 
+      xlab("Date of Infection\n (with respect to Event Date)") + 
+      ylab("Probability (%)")
   
-  output$distRes <- renderText({
-    x =  dataInput()
-    #### Write the report
-    conclusion = ""
-    conclusion = paste0(conclusion, "</div>")
-    HTML(conclusion)
-  })
-  
-  
-  output$summary_participants_properties<-renderTable({
-    x =  dataInput()
-     #### Renders table with summary statistics for the participants (age and gender, nb of people in household)
-    df = data.frame(rbind(
-      c(paste0(nrow(input$n), ' participants'), paste0(100 *mean(unlist(x$df["Sex"]) == "Male"), " % Male"), 
-        paste0(100 *mean(unlist(x$df["Sex"]) == "Female"), " % Female")),
-      c(mean(unlist(x$df["Age"])), quantile(unlist(x$df["Age"]), 0.025), quantile(unlist(x$df["Age"]),0.975)),
-      c(mean(unlist(x$df["nb_people_hh"])), quantile(unlist(x$df["nb_people_hh"]), 0.025),
-        quantile(unlist(x$df["nb_people_hh"]), 0.975))
-    ))
-    colnames(df) <- c("Mean", "2.5th Quantile", "97.5th Quantile")
-    row.names(df) <- c("General", "Age", "Nb of people in household")
-    print(df)
-  })
-  
-  output$summary_comparisons <-renderTable({
-    #### Renders table with summary statistics for the participants (age and gender, nb of people in household)
-    x = dataInput()
-    df = data.frame(rbind(
-      c(mean(x$nb_infections), quantile(x$nb_infections, 0.025), quantile(x$nb_infections, 0.975)),
-      c(mean(x$Baseline_infections_on_event_day), quantile(x$Baseline_infections_on_event_day, 0.025), quantile(x$Baseline_infections_on_event_day, 0.975)),
-      c(mean(x$nb_hospitalizations), quantile(x$nb_hospitalizations, 0.025), quantile(x$nb_hospitalizations, 0.975)),
-      c(mean(x$Baseline_hosp_on_event_day), quantile(x$Baseline_hosp_on_event_day, 0.025), quantile(x$Baseline_hosp_on_event_day, 0.975)),
-      c(mean(x$nb_deaths), quantile(x$nb_deaths, 0.025), quantile(x$nb_deaths, 0.975)),
-      c(mean(x$Baseline_deaths_on_event_day), quantile(x$Baseline_deaths_on_event_day, 0.025), quantile(x$Baseline_deaths_on_event_day, 0.975))
-    ))
-    colnames(df) <- c("Mean", "2.5th Quantile", "97.5th Quantile")
-    row.names(df) <- c("Event: Infections", "Baseline: Infections",
-                      "Event: Hospitalizations", "Baseline: Hospitalizations", 
-                      "Event: Deaths", "Baseline: Deaths")
-    print(df)
-  })
-  
-  
-  comparison_with_other_diseases<-reactive({
-  #### Renders comparison of the fatality of COVID with respect to other diseases
-    "By "
-  })
-  
-  comparison_with_car_accidents <-reactive({
-    #### Renders comparison of fatalities due to car accidents
-  })
-  
-  comparison_with_H0 <-reactive({
-    #### Renders comparison with H0 (table)
-    
-  })
-  
-  comparison_with_H0_text<-reactive({
-    dat =  dataInput()
 
+    pt4 <- ggplot(x$n_simulated_infections)+
+       geom_density(aes(x=n, fill=type), adjust = 2, alpha=0.4)+
+       theme_bw() + 
+       ylab("Density") + xlab("Number of new cases/ transmission at the event")
+       
+    pt5 <- ggplot(x$n_simulated_infections)+
+         geom_boxplot(aes(x=type,y=n, fill=type)) +
+       theme_bw() + 
+         ylab("Number of new cases\n/ transmission at the event") + xlab("Situation")
+   
+    grid.arrange(pt2,pt3,pt4,pt5, nrow=4)
+    
+  })
+  
+  
+  
 
-    #### Renders comparison with H0 (text ---- this is an important comparison, so it perhaps deserves more explanations than the rest).
-    i = round(mean(dat$nb_infections),2)
-    ii =round( 0.5 * (quantile(x = dat$nb_infections, 0.975) - quantile(x = dat$nb_infections, 0.025)),2)
-    j = round(mean(dat$nb_hospitalizations),2)
-    jj =round( 0.5 * (quantile(x = dat$nb_hospitalizations, 0.975) - quantile(x = dat$nb_hospitalizations, 0.025)),2)
-    k = round(mean(dat$nb_deaths),2)
-    kk =round( 0.5 * (quantile(x = dat$nb_deaths, 0.975) - quantile(x = dat$nb_deaths, 0.025)),2)
-    
-    x = round(mean(dat$Baseline_infections_on_event_day),2)
-    xx = round(0.5 * (quantile(x = dat$Baseline_infections_on_event_day, 0.975) - quantile(x = dat$Baseline_infections_on_event_day, 0.025)),2)
-    y = round(mean(dat$Baseline_hosp_on_event_day),2)
-    yy =round( 0.5 * (quantile(x = dat$Baseline_hosp_on_event_day, 0.975) - quantile(x = dat$Baseline_hosp_on_event_day, 0.025)),2)
-    z = round(mean(dat$Baseline_deaths_on_event_day),2)
-    zz = round(0.5 * (quantile(x = dat$Baseline_deaths_on_event_day, 0.975) - quantile(x = dat$Baseline_deaths_on_event_day, 0.025)),2)
-    a = round(i/x,4)
-    b=  round(j/y,4)
-    d = round(ii/ xx,4)
-    p = paste0("The event is projected to yield a total of ", i, " new infections (+/-", ii , "), ", j, " hospitalizations (+/-", jj , "), and ", k, " deaths (+/-", kk , ").  \n")
-    #print(p)
-    if (input$date_event > Sys.Date()){
-      p = paste0(p, "By comparison, if the event were not to take place, based on the projected prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
-      y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths \n. As such, the average effect of the event would be an increase of ",
-      ifelse( a>1, "an increase of ", "a decrease of "),
-      100 * abs(a-1), " % new infections among participants (", ifelse( d>1, "an increase of ", "a decrease of "),
-      100 * abs(d-1), " % in the 95th quantile), and ", ifelse( b>1, "an increase of ", "a decrease of "), abs(b -1)*100,
-      " % new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
-    }else{
-      p = paste0(p, "By comparison, if the event had not taken place, based on the observed prevalence of the disease, we could expect ", x, "(+/-", xx , ") new infections among the participants, yielding ",
-                   y, "(+/-", yy , ") hospitalizations and ", z, "(+/-", zz , ") deaths. \n As such, the average effect of the event is ",
-                   ifelse(a>1, "an increase of ", "a decrease of "),
-                   abs(a-1)*100, " new infections among participants (", ifelse(d>1, "an increase of ", "a decrease of "),
-                   abs(d-1)*100, " in the 95th quantile), and ", ifelse(b>1, "an increase of ", "a decrease of "), abs(b -1)*100,
-                   " new hospitalizations (primary). Check the table below for a more complete comparison of primary (and secondary) infections, hosptializations and deaths.")
-    }
-    #print(p)
-  })
-  
-  
-  output$Report <- renderText({
-    ### Report that needs to quantify the risk of holding the event with respect to other known diseases/ prevelence
-    ### We need: (1) the H0 (better visaulization)
-    ###          (2) Comparison with the risk of having car accidents
-    ###          (3) Other diseases to compare the fatality with
-    gsub(pattern = "\\n", replacement = "<br/>" ,paste0('<p style="font-family:verdana;font-size:14px">',
-                                                        toString(comparison_with_H0_text()),
-                                                        toString(comparison_with_other_diseases()),  
-                                                        "</p>"))
-    
-  })
-  
-  
-  
-  
-  
-  
 }
-
-
 shinyApp(ui, server)

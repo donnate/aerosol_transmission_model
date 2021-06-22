@@ -1,0 +1,22 @@
+input <- list(
+"country" = "Estonia",
+"region" = "Main territory",
+"date_event" = as.Date("2021-02-14"),
+"duration" = 90,
+"unit" =0,
+"length" =50,
+"width" =50,
+"height"=5,
+"temperature"=20,
+"RH"=40,
+"UV" =3,
+"ventilation"="Daycare",
+"control"=0,
+"n"=1000,
+"time2event"=2,
+"activity"="Standing:Loudly speaking",
+"mask"=0,
+"prop_mask"=50,
+"mixing"=0,
+file1=NULL 
+)
