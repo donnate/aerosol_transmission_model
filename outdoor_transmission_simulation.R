@@ -2,10 +2,12 @@ library(tidyverse)
 library(methods)
 options(warn = -1) 
 
+# Helper function to compute distance.
 l2_norm = function(x, y) {
     return (sqrt(x^2 + y^2))
 }
 
+# Define Person class
 Person = setRefClass("Person", fields = c(infected="logical", dose="numeric"))
 
 Person$methods(initialize = function(prevalence)
@@ -14,6 +16,7 @@ Person$methods(initialize = function(prevalence)
         initFields(infected=infected, dose=0)
     })
 
+# Define Model class
 ExactModel = setRefClass("ExactModel", 
                          fields = c(n_servers="numeric", 
                                     distance_between_people="numeric", 
@@ -54,18 +57,19 @@ ExactModel$methods(initialize = function(n_servers, distance_between_people,
 
         # Initialize the model
         initFields(n_servers=n_servers, 
-                    distance_between_people=distance_between_people, 
-                    distance_between_queues=distance_between_queues, 
-                    entry_rate=entry_rate, 
-                    service_rate=1/service_time, 
-                    prevalence=prevalence, 
-                    elapsed_time=0, 
-                    duration=duration,
-                    hazard_rates=hazard_rates, 
-                    queues=queues,
-                    exited_people=exited_people)
+                   distance_between_people=distance_between_people, 
+                   distance_between_queues=distance_between_queues, 
+                   entry_rate=entry_rate, 
+                   service_rate=1/service_time, 
+                   prevalence=prevalence, 
+                   elapsed_time=0, 
+                   duration=duration,
+                   hazard_rates=hazard_rates, 
+                   queues=queues,
+                   exited_people=exited_people)
     })
 
+# Add one person to the model in the queue with shortest length.
 ExactModel$methods(add_person = function() 
     {
         lengths = map(queues, length)
@@ -73,12 +77,14 @@ ExactModel$methods(add_person = function()
         queues[[shortest]] <<- append(queues[[shortest]], Person(prevalence))
     })
 
+# Service one person in the given queue.
 ExactModel$methods(remove_person = function(index)
     {
         exited_people <<- append(exited_people, queues[[index]][[1]])
         queues[[index]] <<- queues[[index]][-1]
     })
 
+# Infect nearby people, given the location of a contagious person.
 ExactModel$methods(infect = function(index, position, time_step)
     {
         for (vec in hazard_rates) {
@@ -90,19 +96,10 @@ ExactModel$methods(infect = function(index, position, time_step)
                     queues[[index + di]][[position + dp]]$dose <<- queues[[index + di]][[position + dp]]$dose + hazard_rate * time_step
                 }
             }
-            # try(queues[[index + di]][[position + dp]]$dose <<- queues[[index + di]][[position + dp]]$dose + hazard_rate * time_step, silent=TRUE)
         }
-        # for (idx in seq_along(queues)) {
-        #     for (pos in seq_along(queues[[idx]])) {
-        #         distance = l2_norm((index - idx) * distance_between_queues,
-        #                             (position - pos) * distance_between_people)
-        #         if (distance < 2) {
-        #             queues[[idx]][[pos]]$dose <<- queues[[idx]][[pos]]$dose + 0.00913 * time_step * exp(-log(2.02) * (distance - 0.5))
-        #         }
-        #     }
-        # }
     })
 
+# Step forward to next event (entry or exit).
 ExactModel$methods(step = function()
     {
         # Generate time to next event.
@@ -154,6 +151,7 @@ ExactModel$methods(step = function()
         }
     })
 
+# Compute expected number of new infections.
 ExactModel$methods(new_infections = function()
     {
         cumulative_sum = 0
@@ -174,10 +172,13 @@ ExactModel$methods(new_infections = function()
         return (cumulative_sum)
     })
 
+# Arguments: number of trials, number of servers, distance between people within queue, 
+# distance between queues, arrival rate per minute, service time in minutes, duration
+# of event in minutes
+# Return value: number of new infections in each trial (vector of length n_trials)
 simulation = function(n_trials, ...) {
     data = c()
     for (i in seq.int(n_trials)) {
-        print(i)
         m = ExactModel(...)
         while (m$step()) {}
         n_data = m$new_infections()
