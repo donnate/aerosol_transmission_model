@@ -22,13 +22,13 @@ compute_relative_infectiousness <- function(input,period4predicting, plot=FALSE)
   
   infectiousness = data.frame("Days"=0:period4predicting,
                               "mean"=c(0, apply((sapply(1:10, function(i){
-                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)), unlist(infectivity %>% filter(Days> -4) %>% select(mean), use.names = FALSE), rep(0,100))[1:period4predicting]
+                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)), unlist(infectivity %>% filter(Days> -4) %>% dplyr::select(mean), use.names = FALSE), rep(0,100))[1:period4predicting]
                               })),1,sum)),
                               "lower"=c(0, apply((sapply(1:10, function(i){
-                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)), unlist(infectivity %>% filter(Days> -4) %>% select(lower), use.names = FALSE), rep(0,100))[1:period4predicting]
+                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)), unlist(infectivity %>% filter(Days> -4) %>% dplyr::select(lower), use.names = FALSE), rep(0,100))[1:period4predicting]
                               })),1,sum)),
                               "upper"=c(0, apply((sapply(1:10, function(i){
-                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)),unlist(infectivity %>% filter(Days> -4) %>% select(upper), use.names = FALSE), rep(0,100))[1:period4predicting]
+                                as.numeric(p_incub[i]) * c(rep(0,max(i-4+1,0)),unlist(infectivity %>% filter(Days> -4) %>% dplyr::select(upper), use.names = FALSE), rep(0,100))[1:period4predicting]
                               })),1,sum))
                               )
 
@@ -133,13 +133,13 @@ compute_relative_infectiousness <- function(input,period4predicting, plot=FALSE)
 # 
 # infectiousness = data.frame("Days"=1:30,
 #                 "mean"=apply((sapply(1:10, function(i){
-#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% select(mean), use.names = FALSE), rep(0,100))[1:30]
+#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% dplyr::select(mean), use.names = FALSE), rep(0,100))[1:30]
 # })),1,sum),
 # "lower"=apply((sapply(1:10, function(i){
-#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% select(lower), use.names = FALSE), rep(0,100))[1:30]
+#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% dplyr::select(lower), use.names = FALSE), rep(0,100))[1:30]
 # })),1,sum),
 # "upper"=apply((sapply(1:10, function(i){
-#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% select(upper), use.names = FALSE), rep(0,100))[1:30]
+#   as.numeric(p_incub[i]) * c( unlist(infectivity %>% filter(Days> -i) %>% dplyr::select(upper), use.names = FALSE), rep(0,100))[1:30]
 # })),1,sum))
 # 
 # 

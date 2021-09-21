@@ -30,10 +30,10 @@ si <- distcrete("gamma", shape = params$shape,
                 scale =  params$scale,   ### scale = 1/beta 
                 interval = 1, w = 0)
 
-res = list()
 samples_knn= list()
 samples_R = list()
 a = 1
+for (per in c(7,14, 21, 28)){
 for (date in as.character(dates)){
   for (country in countries){
     print(c(country, date))

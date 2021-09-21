@@ -8,7 +8,7 @@ library(data.table)
 library(reshape2)
 library(tibbletime)
 library(EnvStats)
-
+library(data.table)
 
 source("helper_functions.R")
 source("vaccination.R")
@@ -30,7 +30,7 @@ share <- list(
 )
 
 ###### START BY DEFINING GLOBAL PARAMETERS
-B = 1000  ### Nb of simulations we want to run
+B = 50000  ### Nb of simulations we want to run
 BREATHING_RATE = 0.012 * 60    
 DEPOSITION = 0.24
 MASK_EFFICIENCY = 0.8  ### 50% is the recommended value
@@ -242,6 +242,8 @@ server <- function(input, output, session) {
                                         div=2, distance_type="MSE")
           prevalence_df = res_df$res
           samples_prev = res_df$output
+        
+          samples_prev["trajectory"] = sapply(1:nrow(samples_prev), FUN=function(x){x%/%(PERIOD_FOR_FITTING+PERIOD_FOR_PREDICTING)})
     
           #### Correct for all of these under-ascertainment issues
           future_prevalence_df = prevalence_df %>%
@@ -255,10 +257,16 @@ server <- function(input, output, session) {
         if (nrow(data2fit) < PERIOD_FOR_PREDICTING +1){
           data2fit= rbind(data2fit, data.frame("new_cases_smoothed_per_million" = rep(data2fit$new_cases_smoothed_per_million[nrow(data2fit)], PERIOD_FOR_PREDICTING +1 -nrow(data2fit) ) ))
         }
-        future_prevalence_df  = data.frame("time" = 1:(PERIOD_FOR_PREDICTING + 1),
+        future_prevalence_df  = data.frame("time" = 0:(PERIOD_FOR_PREDICTING),
                                            "prevalence" =  1/bias_corr * 1e-6 * data2fit$new_cases_smoothed_per_million,
                                            "sd_prevalence" = rep(0,PERIOD_FOR_PREDICTING+1),
-                                           "Date_of_cases" =seq(from=as.Date(as.character(input$date_event)) - PERIOD_FOR_PREDICTING, to = as.Date(as.character(input$date_event)), by="day"))
+                                         "Date_of_cases" =seq(from=as.Date(as.character(input$date_event)) - PERIOD_FOR_PREDICTING, to = as.Date(as.character(input$date_event)), by="day"))
+        samples_prev = c()
+        for (i in 1:NCURVES){
+          samples_prev = rbind(samples_prev, future_prevalence_df)
+        }
+        colnames(samples_prev) = c("time", "value", "sd_prev", "Date")
+        samples_prev["trajectory"] = as.vector(sapply(1:NCURVES, function(x){rep(x, PERIOD_FOR_PREDICTING+1)}))
       }
       
       future_prevalence_df = future_prevalence_df %>% mutate(ymin = prevalence -2*sd_prevalence,
@@ -273,34 +281,31 @@ server <- function(input, output, session) {
       ##########################################
       #### Step 1.b : compute probability of being infectious, and vulnerable
       ##########################################
-      incProgress(2/D, detail = "Predicting the infectiousness (This might take a while).")
-      group_assignment = c(sapply(1:PERIOD_FOR_PREDICTING, function(x){paste0(x)})) #### STOP one day before the event
+      incProgress(2/D, detail = "Predicting the infectiousness. This might take a while (~30s).")
+      group_assignment = c(sapply(0:PERIOD_FOR_PREDICTING, function(x){paste0(x)})) #### STOP one day before the event
       
       df = pivot_wider(future_prevalence_df %>% select(time, prevalence), names_from = c("time"), values_from = "prevalence")
       #proba_null <- future_prevalence_df[PERIOD_FOR_PREDICTING,"prevalence"]
       nb_people_infected <- sum(N_TOT * df)
+      infectiousness_all = compute_relative_infectiousness(input, PERIOD_FOR_PREDICTING,
+                                                           plot=FALSE)
       
       #### Effect of the test + symptoms screening
-      df_sample = data.frame(matrix(0, B,PERIOD_FOR_PREDICTING))
+      df_sample = (sapply(1:B, FUN=function(x){
+      return((test %>% dplyr::filter(trajectory==  sample(1:NCURVES, 1) , time>=0))$value/1e6)}))
+      df_sample <- data.frame(matrix(unlist(df_sample),
+                                     nrow=B, byrow=TRUE))
+      
+      
       colnames(df_sample) = group_assignment
+      proba_baseline <- df_sample$`28`
       
-      for (i in 1:(PERIOD_FOR_PREDICTING)){
-        ii = PERIOD_FOR_PREDICTING - i
-        ind = which(infectiousness_all$Date.of.Infection == -(PERIOD_FOR_PREDICTING - i))
-        
-        df_sample[as.character(i)]= sapply(1:B, function(b){
-          min(1,max(0,ifelse(future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)] >0, rnorm(1, future_prevalence_df$prevalence[which(future_prevalence_df$time == i)], future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)]),
-                             future_prevalence_df$prevalence[which(future_prevalence_df$time == i)] )))* max(min(1, 0.01* ifelse( (infectiousness_all$infectiousness_event_sd[ind] > 0),
-                                                                                                                                rnorm(1, infectiousness_all$infectiousness_event[ind], infectiousness_all$infectiousness_event_sd[ind]),
-                                                                                                                                infectiousness_all$infectiousness_event[ind])),0)
-        
-                    })
-      }
+      mult = sapply(1:29, function(i){ rnorm(n =B,infectiousness_all$infectiousness_event[i], infectiousness_all$infectiousness_event_sd[i])})
+      mult[mult<=0] =0
+      df_sample = df_sample * mult * 0.01
       
-      
-      
-      nb_people_infectious_at_the_event <- mean(N_TOT* apply(df_sample[group_assignment ],1, sum))
-      nb_infective_people <- sapply(1:B, function(b){rbinom(1,N_TOT, sum(df_sample[b,group_assignment ]))})
+      nb_people_infectious_at_the_event_all <- rpois(B, N_TOT* apply(df_sample[group_assignment ],1, sum))
+      nb_people_infectious_at_the_event <- mean(nb_people_infectious_at_the_event_all)
       nb_people_detected <- nb_people_infected - nb_people_infectious_at_the_event 
 
       
@@ -372,52 +377,48 @@ server <- function(input, output, session) {
       
       
       incProgress(4/D, detail = "Computing infection distribution")
-      nb_infective_people = apply(df_sample, 1, function(x){rbinom(1,N_TOT, sum(x ))})
+      nb_infective_people = nb_people_infectious_at_the_event_all
       
-      proba_dist_infectiousness <- sapply(1:min(100, N_TOT), function(n){dpois(n,  N_TOT * mean(apply(df_sample,1,sum)) )})
-      proba_infection <- sapply(1:min(100, N_TOT), function(n){
-        
-        q_e = n * as.numeric(quanta_emission_rate0)
-        
-        q_c <- as.numeric(compute_quanta_concentation(q_e, first_order_loss_rate = first_order_loss_rate, 
+      alpha = log(5)/log(4)
+      proba_infection_sim <- sapply(nb_people_infectious_at_the_event_all, function(n){
+        if (n>0){
+        q_e = sum(rpareto(n, as.numeric(quanta_emission_rate0) /2^(1/alpha),   alpha))
+        q_c <- as.numeric(compute_quanta_concentation(q_e, first_order_loss_rate = first_order_loss_rate,
                                                       volume =volume,
-                                                      duration =input$duration, 
-                                                      nb_infective_people = n))
+                                                      duration =input$duration))
         
-        quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration = q_c,  
+        quanta_inhaled_per_person <- compute_quanta_inhaled_per_person(quanta_concentration = q_c,
                                                                        breathing_rate = BREATHING_RATE,
-                                                                       duration=input$duration, 
+                                                                       duration=input$duration,
                                                                        inhalation_mask_efficiency = MASK_INHALATION_EFFICIENCY,
                                                                        prop_mask = 0.01 * input$prop_mask)
         #print(c(q_e, q_c,quanta_inhaled_per_person))
         #print(paste0("quanta_inhaled_per_person: ",quanta_inhaled_per_person))
         ###### Now there is a lot of uncertainty around that parameter
         ###### We model potential super spreader events by using a pareto distirbution
-        
-        return(quanta_inhaled_per_person)
+        return(1-exp(-quanta_inhaled_per_person))
+        }else{
+          return(0)
+        }
       })
-      
-      L  = min(max(which(proba_dist_infectiousness > 1e-15)), N_TOT)
-      
-      
-      n_infections <- sapply(1:B, function(b){
-        t(sapply(1:L, function(n){
-          min(n_susc[b], rpareto(1,n_susc[b] * proba_infection[n] *0.16/1.16, 1.16))
-        }))
+
+      n_infections_sim <- sapply(1:B, function(b){
+        sum(sapply(proba_infection_sim[b],
+                      FUN=function(x){rbinom(n_susc[b],1,x)}))
       })
       
 
                                       
       
       incProgress(5/D, detail = "Computing summaries for the number of people infected")
-      res = data.frame("Average Number of Transmissions" = t(as.matrix(apply(n_infections,1,mean)))%*% as.matrix(proba_dist_infectiousness[1:L]),
-                       "Q97.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.975)))%*% as.matrix(proba_dist_infectiousness[1:L]),
-                       "Q2.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.025)))%*% as.matrix(proba_dist_infectiousness[1:L]),
-                       "Q99 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.99)))%*% as.matrix(proba_dist_infectiousness[1:L]),
-                       "Q1 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.01)))%*% as.matrix(proba_dist_infectiousness[1:L]),
-                       "Q50 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.5)))%*% as.matrix(proba_dist_infectiousness[1:L]))
-      
- 
+      # res = data.frame("Average Number of Transmissions" = t(as.matrix(apply(n_infections,1,mean)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+      #                  "Q97.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.975)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+      #                  "Q2.5 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.025)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+      #                  "Q99 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.99)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+      #                  "Q1 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.01)))%*% as.matrix(proba_dist_infectiousness[1:L]),
+      #                  "Q50 Number of Transmissions" = t(as.matrix(apply(n_infections,1,quantile, 0.5)))%*% as.matrix(proba_dist_infectiousness[1:L]))
+      # 
+      # 
     
       ##########################################
       ##########################################
@@ -425,18 +426,20 @@ server <- function(input, output, session) {
       ##########################################
       ##########################################
       incProgress(6/D, detail = "Simulating Infections")   
-      n_simulated_infections  = data.frame("n" = (sapply(1:B, function(b){
-        ifelse(nb_infective_people[b] == 0, 0, min(n_susc[b], round(rpareto(1, (n_susc[b] - nb_infective_people[b]) * proba_infection[nb_infective_people[b]] *0.16/1.16, 1.16))))
-      })), type="Event", date=input$date_event)
-      n_simulated_infections = n_simulated_infections %>% filter( n <= res$Q99.Number.of.Transmissions)
+      n_simulated_infections  = data.frame("n" = n_infections_sim, type="Event", date=input$date_event)
+      
+       res = data.frame("Average Number of Transmissions" = mean(n_simulated_infections$n),
+                        "Q97.5 Number of Transmissions" = quantile(n_simulated_infections$n, 0.975),
+                        "Q2.5 Number of Transmissions" = quantile(n_simulated_infections$n, 0.025),
+                        "Q99 Number of Transmissions" = quantile(n_simulated_infections$n, 0.99),
+                         "Q1 Number of Transmissions" = quantile(n_simulated_infections$n, 0.01),
+                        "Q50 Number of Transmissions" = quantile(n_simulated_infections$n, 0.5))
+       
+      
       
       incProgress(7/D, detail = "Computing Baseline rates") 
       
       prev_day_event =  future_prevalence_df %>% filter(Date_of_cases == input$date_event)
-      proba_baseline <- t(sapply(1:B, function(b){
-        max(0,rnorm(n=1, mean=prev_day_event$prevalence,
-                    sd=prev_day_event$sd_prevalence))
-      }))
       
       n_simulated_infections <- rbind(n_simulated_infections,
       data.frame("n" = (sapply(1:B, function(b){
@@ -519,7 +522,11 @@ server <- function(input, output, session) {
       tags$br(),
       tags$p("We are a group of researchers around the world, still currently in the process of developing this tool. As a consequence, we are not professional developpers --- so please do forgive any bugs that you might encounter and address your questions and comments to riskmanagement4capacity@gmail.com."),
       tags$p("We do not save any of the information you input."),
-      tags$br()
+      tags$br(),
+      tags$b("Contribute  to research!!! There are currently no dataset on event transmission. This makes is extremely hard for us to check and validate our assumptions.It would thus help us greaty if you submitted the information about your event and registered the number of transmissions (if any) that occurred by filling in the following survey:"),
+      tags$a(href="https://docs.google.com/forms/d/e/1FAIpQLSfCqmEltbJtOhfVTd_yNvhu4t0yulyAziuxStGXx8YI0MVQ0w/viewform?usp=sf_link", "Click here to register your event information and outcome!"),
+      tags$p("We are a group of academics, and this information would not be shared to any other party."),
+      tags$br(),
         )
   })
   
@@ -561,7 +568,7 @@ server <- function(input, output, session) {
        
     pt5 <- ggplot(x$n_simulated_infections)+
          geom_boxplot(aes(x=type,y=n, fill=type)) +
-       theme_bw() + 
+       theme_bw() + scale_y_log10() + 
          ylab("Number of new cases\n/ transmission at the event") + xlab("Situation")
    
     grid.arrange(pt2,pt3,pt4,pt5, nrow=4)

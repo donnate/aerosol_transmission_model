@@ -2,7 +2,7 @@
 
 
 compute_quanta_emission_rate <- function(activity, mask_efficiency ,
-                                         prop_mask,nb_infective_people){
+                                         prop_mask, nb_infective_people){
   ### This function computes the quanta emission rate (per hour) given room parameters
   ### Step 1. read in the file with the different categories
   quanta_rates = read_csv("quanta_emission_rates.csv", col_types = cols())
@@ -12,7 +12,7 @@ compute_quanta_emission_rate <- function(activity, mask_efficiency ,
 
 compute_quanta_concentation <- function(quanta_emission_rate,
                                         first_order_loss_rate, volume,
-                                        duration, nb_infective_people){
+                                        duration){
   ### This function computes the quanta emission rate (per hour) given room parameters
   return(quanta_emission_rate/first_order_loss_rate/volume * 
          (1 - 1/first_order_loss_rate / duration * (1 -exp(- first_order_loss_rate * duration))))

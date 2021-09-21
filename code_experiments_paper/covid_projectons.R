@@ -54,7 +54,7 @@ predict_prevalence <- function(origin, country="United Kingdom",
                                country_data = NULL,nb_curves=100, 
                                distance=Difference_function, 
                                period4predicting=NULL, period4fitting =NULL, 
-                               div=2, distance_type="MSE", weights=NULL){
+                               div=2, distance_type="MSE", weights=NULL, agg=mean){
   ORIGIN = origin
   PERIOD_FOR_FITTING = ifelse(is.null(period4fitting), 28, period4fitting)
   PERIOD_FOR_PREDICTING = ifelse(is.null(period4predicting), 28,period4predicting )
@@ -149,7 +149,7 @@ predict_prevalence <- function(origin, country="United Kingdom",
       })
     }else{
       full_closest_case_curves = sapply(1:NB_OF_CASE_CURVES, function(x){
-        print(c(gsub(".", " ", toString(diff_vec2$variable[x]), fixed = TRUE), diff_vec2$date[x], as.Date(as.numeric(diff_vec2$date[x]), origin = "1970-01-01")))
+       # print(c(gsub(".", " ", toString(diff_vec2$variable[x]), fixed = TRUE), diff_vec2$date[x], as.Date(as.numeric(diff_vec2$date[x]), origin = "1970-01-01")))
         t = unlist(COUNTRY_DATA %>% 
                      filter(location == gsub(".", " ", toString(diff_vec2$variable[x]), fixed=TRUE),
                             date >  diff_vec2$date[x] - PERIOD_FOR_FITTING,
@@ -167,12 +167,15 @@ predict_prevalence <- function(origin, country="United Kingdom",
     melted_case_curves <- reshape2::melt(full_closest_case_curves, 
                                          id.vars="time")
     
-    print(ggplot(melted_case_curves, aes(x=time, y=value, group = variable)) +
-      geom_line() + geom_line())
+    #print(ggplot(melted_case_curves, aes(x=time, y=value, group = variable)) +
+    #  geom_line() + geom_line())
     # Calculate the mean and standard deviation at each timepoint
     Summarised_case_predictions <- melted_case_curves %>% 
       group_by(time) %>% 
-      dplyr::summarise(prevalence=mean(value/1e6), sd_prevalence=sd(value/1e6))
+      dplyr::summarise(prevalence=agg(value/1e6), sd_prevalence=sd(value/1e6),
+      q50 = quantile(value/1e6, 0.5),
+      q975 = quantile(value/1e6, 0.98),
+      q25 = quantile(value/1e6, 0.02))
     
     
     

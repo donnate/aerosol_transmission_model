@@ -16,10 +16,12 @@ compute_underascertainment_bias <- function(origin,  country, country_data, date
     # Calculate the proportion of cases found
     cases_and_ifr$proportion_of_cases_detected=cases_and_ifr$new_cases_smoothed_per_million/cases_and_ifr$estimated_cases_per_million
     # Limit the maximum proportion of cases found to 1.0 and minimum to 0
-    cases_and_ifr$proportion_of_cases_detected=ifelse(cases_and_ifr$proportion_of_cases_detected>1,1,ifelse(cases_and_ifr$proportion_of_cases_detected<0,0,cases_and_ifr$proportion_of_cases_detected))
+    cases_and_ifr$proportion_of_cases_detected=ifelse(cases_and_ifr$proportion_of_cases_detected>1,1,
+    ifelse(cases_and_ifr$proportion_of_cases_detected<0,0,cases_and_ifr$proportion_of_cases_detected))
     # specific countries example of ascertainment rate
     # select rows and columns of interest then pivot longer
-    selected_countries_example = cases_and_ifr %>% filter(location %in% c(country)) %>%
+    selected_countries_example = cases_and_ifr %>%
+    dplyr::filter(location %in% c(country)) %>%
       dplyr::select("location", "estimated_cases_per_million", "new_cases_smoothed_per_million", "new_deaths_smoothed_per_million", "date", "proportion_of_cases_detected") %>%
       pivot_longer(cols = c("estimated_cases_per_million", "new_cases_smoothed_per_million", "new_deaths_smoothed_per_million", "proportion_of_cases_detected"))
    
@@ -40,9 +42,9 @@ compute_underascertainment_bias <- function(origin,  country, country_data, date
               theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1)))
     }
     if (is.null(date_max)){
-      return(selected_countries_example %>% filter(date > origin, name == "proportion_of_cases_detected" ) %>% select(date, value) )
+      return(selected_countries_example %>% filter(date > origin, name == "proportion_of_cases_detected" ) %>% dplyr::select(date, value) )
     }else{
-      return(selected_countries_example %>% filter(date > origin, date<date_max, name == "proportion_of_cases_detected" ) %>% select(date, value) )
+      return(selected_countries_example %>% filter(date > origin, date<date_max, name == "proportion_of_cases_detected" ) %>% dplyr::select(date, value) )
     }
     
 }
