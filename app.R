@@ -282,7 +282,7 @@ server <- function(input, output, session) {
       #### Step 1.b : compute probability of being infectious, and vulnerable
       ##########################################
       incProgress(2/D, detail = "Predicting the infectiousness. This might take a while (~30s).")
-      group_assignment = c(sapply(0:PERIOD_FOR_PREDICTING, function(x){paste0(x)})) #### STOP one day before the event
+      group_assignment = c(sapply(1:PERIOD_FOR_PREDICTING, function(x){paste0(x)})) #### STOP one day before the event
       
       df = pivot_wider(future_prevalence_df %>% select(time, prevalence), names_from = c("time"), values_from = "prevalence")
       #proba_null <- future_prevalence_df[PERIOD_FOR_PREDICTING,"prevalence"]
@@ -291,18 +291,20 @@ server <- function(input, output, session) {
                                                            plot=FALSE)
       
       #### Effect of the test + symptoms screening
-      df_sample = (sapply(1:B, FUN=function(x){
-      return((test %>% dplyr::filter(trajectory==  sample(1:NCURVES, 1) , time>=0))$value/1e6)}))
-      df_sample <- data.frame(matrix(unlist(df_sample),
-                                     nrow=B, byrow=TRUE))
-      
-      
+      df_sample = data.frame(matrix(0, B,PERIOD_FOR_PREDICTING))
       colnames(df_sample) = group_assignment
-      proba_baseline <- df_sample$`28`
       
-      mult = sapply(1:29, function(i){ rnorm(n =B,infectiousness_all$infectiousness_event[i], infectiousness_all$infectiousness_event_sd[i])})
-      mult[mult<=0] =0
-      df_sample = df_sample * mult * 0.01
+      for (i in 1:(PERIOD_FOR_PREDICTING)){
+        ii = PERIOD_FOR_PREDICTING - i
+        ind = which(infectiousness_all$Date.of.Infection == -(PERIOD_FOR_PREDICTING - i))
+        
+        df_sample[as.character(i)]= sapply(1:B, function(b){
+          min(1,max(0,ifelse(future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)] >0, rnorm(1, future_prevalence_df$prevalence[which(future_prevalence_df$time == i)], future_prevalence_df$sd_prevalence[which(future_prevalence_df$time == i)]),
+                             future_prevalence_df$prevalence[which(future_prevalence_df$time == i)] )))* max(min(1, 0.01* ifelse( (infectiousness_all$infectiousness_event_sd[ind] > 0),
+                                                                                                                                rnorm(1, infectiousness_all$infectiousness_event[ind], infectiousness_all$infectiousness_event_sd[ind]),
+                                                                                                                                infectiousness_all$infectiousness_event[ind])),0)
+                    })
+      }
       
       nb_people_infectious_at_the_event_all <- rpois(B, N_TOT* apply(df_sample[group_assignment ],1, sum))
       nb_people_infectious_at_the_event <- mean(nb_people_infectious_at_the_event_all)
@@ -404,7 +406,7 @@ server <- function(input, output, session) {
 
       n_infections_sim <- sapply(1:B, function(b){
         sum(sapply(proba_infection_sim[b],
-                      FUN=function(x){rbinom(n_susc[b],1,x)}))
+                      FUN=function(x){rbinom(1, as.integer(n_susc[b]),x)}))
       })
       
 
@@ -440,10 +442,21 @@ server <- function(input, output, session) {
       incProgress(7/D, detail = "Computing Baseline rates") 
       
       prev_day_event =  future_prevalence_df %>% filter(Date_of_cases == input$date_event)
-      
+      proba_baseline <- t(sapply(1:B, function(b){
+        max(0,rnorm(n=1, mean=prev_day_event$prevalence,
+                         sd=prev_day_event$sd_prevalence))
+      }))
+      print(proba_baseline)
+      print(length(proba_baseline))
+      for (i in 1:B) {
+        if (is.na(proba_baseline[i]) && i%%100 == 0) {
+          print(i)
+        }
+      }
       n_simulated_infections <- rbind(n_simulated_infections,
       data.frame("n" = (sapply(1:B, function(b){
-        ifelse(nb_infective_people[b] == 0, 0, rbinom(1,n_susc[b],proba_baseline[b]))
+        x = rbinom(1, as.integer(n_susc[b]),proba_baseline[b]) # Some values appear to be missing or invalid in proba_baseline
+        ifelse(nb_infective_people[b] == 0, 0, x)
       })), type="No Event", date=input$date_event))
       
       
@@ -523,7 +536,7 @@ server <- function(input, output, session) {
       tags$p("We are a group of researchers around the world, still currently in the process of developing this tool. As a consequence, we are not professional developpers --- so please do forgive any bugs that you might encounter and address your questions and comments to riskmanagement4capacity@gmail.com."),
       tags$p("We do not save any of the information you input."),
       tags$br(),
-      tags$b("Contribute  to research!!! There are currently no dataset on event transmission. This makes is extremely hard for us to check and validate our assumptions.It would thus help us greaty if you submitted the information about your event and registered the number of transmissions (if any) that occurred by filling in the following survey:"),
+      tags$b("Contribute  to research!!! There are currently no dataset on event transmission. This makes is extremely hard for us to check and validate our assumptions. It would thus help us greatly if you submitted the information about your event and registered the number of transmissions (if any) that occurred by filling in the following survey:"),
       tags$a(href="https://docs.google.com/forms/d/e/1FAIpQLSfCqmEltbJtOhfVTd_yNvhu4t0yulyAziuxStGXx8YI0MVQ0w/viewform?usp=sf_link", "Click here to register your event information and outcome!"),
       tags$p("We are a group of academics, and this information would not be shared to any other party."),
       tags$br(),
